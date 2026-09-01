@@ -33,6 +33,9 @@ npm audit
 
 The production build is written to `docs/` for GitHub Pages.
 
+- Repository: https://github.com/m2ai-portfolio/quick-prompt-cards
+- Production site: https://m2ai-portfolio.github.io/quick-prompt-cards/
+
 ## Editing the library
 
 Prompt cards live in `src/prompts.ts`. Each card defines its category, search tags, guided fields, and final prompt template.
