@@ -53,8 +53,12 @@ contract/workflowId mismatch — full discard, not partial salvage (see rule 2 b
    the declared type.
 6. `completedStageIds` must be an array, and every element must be a string. A non-array
    value, or an array containing a non-string element, is corrupt state.
-7. `updatedAt` must be a string that parses as a valid ISO 8601 date (i.e.
-   `!Number.isNaN(Date.parse(updatedAt))`); an unparsable or missing value is corrupt state.
+7. `updatedAt` must be a string matching the ISO 8601 extended date-time pattern
+   `/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/` AND parse to a valid
+   date (`!Number.isNaN(Date.parse(updatedAt))`). `Date.parse` alone is not sufficient: it
+   also accepts non-ISO strings (e.g. `"January 1, 2026"`, `"2026/01/01"`), which would let
+   non-conforming values pass validation despite the stated ISO-only persistence contract.
+   Both checks must pass; failing either is corrupt state.
 8. Any field failing rules 3-7, or any required field (`contract`, `workflowId`,
    `schemaVersion`, `currentStageId`, `status`, `answers`, `completedStageIds`, `updatedAt`)
    being absent, triggers the same `reset` outcome as rule 2's mismatch. The engine never
