@@ -20,13 +20,13 @@ wizard engine's read/write call to the storage boundary below.
 ```ts
 type AutomationStateV1 = {
   contract: "automation-state/v1";
-  workflowId: string;          // e.g. "silver-platter"
-  schemaVersion: string;       // workflow-owned, e.g. "1.0"
+  workflowId: string; // e.g. "silver-platter"
+  schemaVersion: string; // workflow-owned, e.g. "1.0"
   currentStageId: string;
   status: "draft" | "review" | "submitted" | "completed" | "blocked";
   answers: Record<string, unknown>; // workflow-owned shape; this contract does not validate contents
   completedStageIds: string[];
-  updatedAt: string;           // ISO 8601
+  updatedAt: string; // ISO 8601
 };
 ```
 
@@ -46,19 +46,20 @@ contract/workflowId mismatch — full discard, not partial salvage (see rule 2 b
 3. `currentStageId` must be a member of the workflow's own declared stage ID list at read
    time; an unknown stage ID is also treated as corrupt state.
 4. `status` must be exactly one of `"draft" | "review" | "submitted" | "completed" |
-   "blocked"`; any other value (including `null`, `undefined`, or a differently-cased string)
+"blocked"`; any other value (including `null`, `undefined`, or a differently-cased string)
    is corrupt state.
 5. `answers` must be a plain object (not `null`, not an array, not a primitive). The engine
    does not validate its internal shape (workflow-owned), only that the container itself is
    the declared type.
 6. `completedStageIds` must be an array, and every element must be a string. A non-array
    value, or an array containing a non-string element, is corrupt state.
-7. `updatedAt` must be a string matching the ISO 8601 extended date-time pattern
-   `/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/` AND parse to a valid
-   date (`!Number.isNaN(Date.parse(updatedAt))`). `Date.parse` alone is not sufficient: it
-   also accepts non-ISO strings (e.g. `"January 1, 2026"`, `"2026/01/01"`), which would let
-   non-conforming values pass validation despite the stated ISO-only persistence contract.
-   Both checks must pass; failing either is corrupt state.
+7. Writers must persist `updatedAt` exactly as `Date#toISOString()` output: canonical UTC
+   extended format with three fractional-second digits and a trailing `Z` (for example,
+   `"2026-09-02T18:00:00.123Z"`). Readers require a string for which
+   `!Number.isNaN(Date.parse(updatedAt)) && new Date(updatedAt).toISOString() === updatedAt`.
+   The round-trip equality is mandatory: it rejects non-ISO strings, timezone offsets,
+   noncanonical fractional precision, and impossible calendar values that `Date.parse` would
+   otherwise normalize. Failure is corrupt state.
 8. Any field failing rules 3-7, or any required field (`contract`, `workflowId`,
    `schemaVersion`, `currentStageId`, `status`, `answers`, `completedStageIds`, `updatedAt`)
    being absent, triggers the same `reset` outcome as rule 2's mismatch. The engine never
@@ -71,11 +72,11 @@ contract/workflowId mismatch — full discard, not partial salvage (see rule 2 b
 
 ## Outcomes
 
-| Outcome | Condition | Behavior |
-|---|---|---|
-| `resumed` | Valid, matching contract/workflowId/schemaVersion, known `currentStageId` | Wizard reopens at `currentStageId` with `answers` populated. |
-| `fresh` | No stored state for this `workflowId` | Wizard opens at the workflow's declared entry stage with empty `answers`. |
-| `reset` | Stored state fails any validation rule (2-8) | Corrupt/incompatible state is discarded (not silently patched); wizard opens fresh at the entry stage. The discard itself is not silently invisible to the user — the workflow shell surfaces a one-line "we couldn't resume your previous progress" notice. |
+| Outcome   | Condition                                                                 | Behavior                                                                                                                                                                                                                                                     |
+| --------- | ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `resumed` | Valid, matching contract/workflowId/schemaVersion, known `currentStageId` | Wizard reopens at `currentStageId` with `answers` populated.                                                                                                                                                                                                 |
+| `fresh`   | No stored state for this `workflowId`                                     | Wizard opens at the workflow's declared entry stage with empty `answers`.                                                                                                                                                                                    |
+| `reset`   | Stored state fails any validation rule (2-8)                              | Corrupt/incompatible state is discarded (not silently patched); wizard opens fresh at the entry stage. The discard itself is not silently invisible to the user — the workflow shell surfaces a one-line "we couldn't resume your previous progress" notice. |
 
 ## Idempotency
 
@@ -104,7 +105,7 @@ after data loss.
 ## Storage boundary
 
 - Storage key must be namespaced per `workflowId` (e.g. `prompt-pocket:automation-state:v1:
-  <workflowId>`), so two different automation cards never collide or cross-contaminate state.
+<workflowId>`), so two different automation cards never collide or cross-contaminate state.
 - No business-sensitive answer content is sent to any server as part of this contract; this
   contract governs local persistence only. Server submission (if any) is defined by the
   workflow's own submission contract (e.g. Silver Platter's `SilverPlatterBrowserSubmissionV1`
