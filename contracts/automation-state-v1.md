@@ -32,6 +32,11 @@ type AutomationStateV1 = {
 
 ## Validation rules
 
+Validation is whole-object: every field in `AutomationStateV1` is checked before the object
+is trusted for `resumed`. Any single field failing its check is treated identically to a
+contract/workflowId mismatch — full discard, not partial salvage (see rule 2 below and the
+`reset` outcome).
+
 1. On read, the engine checks `contract === "automation-state/v1"` and `workflowId` /
    `schemaVersion` match the currently mounted workflow's expected values.
 2. Any mismatch (wrong contract tag, wrong workflowId, unrecognized/older/newer
@@ -40,7 +45,21 @@ type AutomationStateV1 = {
    attempt field-by-field salvage across schema versions in v1.
 3. `currentStageId` must be a member of the workflow's own declared stage ID list at read
    time; an unknown stage ID is also treated as corrupt state.
-4. Client-authored fields are never granted executor authority. `status`, `currentStageId`,
+4. `status` must be exactly one of `"draft" | "review" | "submitted" | "completed" |
+   "blocked"`; any other value (including `null`, `undefined`, or a differently-cased string)
+   is corrupt state.
+5. `answers` must be a plain object (not `null`, not an array, not a primitive). The engine
+   does not validate its internal shape (workflow-owned), only that the container itself is
+   the declared type.
+6. `completedStageIds` must be an array, and every element must be a string. A non-array
+   value, or an array containing a non-string element, is corrupt state.
+7. `updatedAt` must be a string that parses as a valid ISO 8601 date (i.e.
+   `!Number.isNaN(Date.parse(updatedAt))`); an unparsable or missing value is corrupt state.
+8. Any field failing rules 3-7, or any required field (`contract`, `workflowId`,
+   `schemaVersion`, `currentStageId`, `status`, `answers`, `completedStageIds`, `updatedAt`)
+   being absent, triggers the same `reset` outcome as rule 2's mismatch. The engine never
+   partially accepts a state object with some fields valid and others not.
+9. Client-authored fields are never granted executor authority. `status`, `currentStageId`,
    and `completedStageIds` are local UI/progress bookkeeping only — if this state is ever
    submitted to a server (out of this contract's scope; see Silver Platter compatibility
    contract), the server independently recomputes completion/authority and does not trust
@@ -52,7 +71,7 @@ type AutomationStateV1 = {
 |---|---|---|
 | `resumed` | Valid, matching contract/workflowId/schemaVersion, known `currentStageId` | Wizard reopens at `currentStageId` with `answers` populated. |
 | `fresh` | No stored state for this `workflowId` | Wizard opens at the workflow's declared entry stage with empty `answers`. |
-| `reset` | Stored state fails validation (rule 2 or 3) | Corrupt/incompatible state is discarded (not silently patched); wizard opens fresh at the entry stage. The discard itself is not silently invisible to the user — the workflow shell surfaces a one-line "we couldn't resume your previous progress" notice. |
+| `reset` | Stored state fails any validation rule (2-8) | Corrupt/incompatible state is discarded (not silently patched); wizard opens fresh at the entry stage. The discard itself is not silently invisible to the user — the workflow shell surfaces a one-line "we couldn't resume your previous progress" notice. |
 
 ## Idempotency
 

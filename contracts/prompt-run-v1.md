@@ -78,10 +78,17 @@ catalog, never trusts client-supplied prompt content).
    data-check-string.)
 2. Reject if `auth_date` is older than 5 minutes (chosen conservative bound; Telegram's docs
    do not mandate a figure). Error: `stale_init_data`.
-3. Reject if `initDataUnsafe.query_id` is absent. Error: `missing_query_id` — this is the
-   signal that the launch context did not support one-tap posting (e.g. opened outside
-   Telegram, or via an unsupported launch surface); the client is expected to fall back per
-   the fallback boundary below, not retry the same request.
+3. Parse `query_id` from the same server-validated `initData` query string used in step 1 —
+   never from `window.Telegram.WebApp.initDataUnsafe`, which is a browser-side convenience
+   object, is never sent by the client in this contract's request, and would be
+   attacker-controlled if it were. `initData` is a URL-encoded query string; `query_id` is
+   one of its top-level fields alongside `hash`, `auth_date`, and `user`, and is only trusted
+   once step 1's HMAC check has passed. Reject if the parsed `query_id` is absent. Error:
+   `missing_query_id` — this is the signal that the launch context did not support one-tap
+   posting (e.g. opened outside Telegram, or via an unsupported launch surface); the client
+   is expected to fall back per the fallback boundary below, not retry the same request. The
+   parsed, validated `query_id` is the value used for the idempotency check below and as the
+   argument to `answerWebAppQuery`.
 4. Reject if `cardId` does not resolve against the canonical server-side prompt catalog.
    Error: `unknown_card`.
 5. All rejections return a safe, non-leaking error code from the enum above; no stack trace,
@@ -97,24 +104,28 @@ catalog, never trusts client-supplied prompt content).
 
 ## Idempotency key
 
-The idempotency key is the Telegram-issued `query_id` itself. It is opaque, single-use, and
-already unique per Mini App session — the server does not mint its own key. The server must
-track `query_id` values it has already attempted to answer (in-memory or short-TTL store is
-sufficient; `query_id` sessions are short-lived) to detect a duplicate client request for a
-`query_id` already consumed.
+The idempotency key is the Telegram-issued `query_id` itself, as parsed from the
+server-validated `initData` string (see Validation step 3), never the client-side
+`initDataUnsafe.query_id`. It is opaque, single-use, and already unique per Mini App session
+— the server does not mint its own key. The server must track `query_id` values it has
+already attempted to answer (in-memory or short-TTL store is sufficient; `query_id` sessions
+are short-lived) to detect a duplicate client request for a `query_id` already consumed.
 
 ## Single-use / retry boundary
 
 - A `query_id` may be the subject of **at most one successful `answerWebAppQuery` call**.
   Telegram enforces this Mini-App-session-scoped one-shot semantics; the server does not
   need its own second enforcement layer beyond not calling it twice.
-- The server MAY retry its own call to `answerWebAppQuery` **only** for a transport-level
-  failure that is provably pre-acceptance (connection refused, timeout with no response
-  received, 5xx from Telegram) and only before any response (success or definitive failure)
-  has been received from Telegram for that `query_id`.
-- The server MUST NOT retry after an ambiguous outcome (e.g. timeout after the request was
-  sent but a response may have been received by Telegram's edge, socket reset mid-response).
-  An ambiguous outcome is treated as `telegram_error` and surfaced to the client as final.
+- The server MAY retry its own call to `answerWebAppQuery` **only** when the failure proves
+  zero request bytes were ever written to Telegram's edge: a DNS resolution failure or a
+  connection refused/failed before the request was sent. These are the only failure modes
+  that prove Telegram could not have processed the call.
+- Every other failure is ambiguous and MUST NOT be retried, including: a timeout with no
+  response received after the request was sent (Telegram may have received and processed it
+  before the response was lost), a socket reset mid-response, and any 5xx status from
+  Telegram (a 5xx means Telegram's edge received and attempted to process the request; it
+  does not prove `answerWebAppQuery` did not execute). All of these are treated as
+  `telegram_error` and surfaced to the client as final, non-replayable.
 - The client MUST NOT retry the same `query_id` under any circumstance. On `telegram_error`
   or `missing_query_id`, or on receiving no response within a bounded client-side timeout
   (recommend 8s), the client tells the user to close and reopen Prompt Pocket (a fresh Menu
