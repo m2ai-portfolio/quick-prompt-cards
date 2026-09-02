@@ -23,8 +23,7 @@ describe("Prompt Pocket", () => {
     expect(screen.queryAllByText("Prompt")).toHaveLength(0);
   });
 
-  it("renders a keyboard-discoverable unavailable workflow outcome", async () => {
-    const user = userEvent.setup();
+  it("renders a keyboard-discoverable unavailable workflow outcome", () => {
     const cards: Card[] = [
       {
         id: "prompt-example",
