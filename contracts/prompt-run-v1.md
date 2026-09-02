@@ -27,17 +27,15 @@ fetched 2026-09-02):
 requires (`{ cardId, initData }` -> server validates -> `answerWebAppQuery` posts a
 user-authorized message). No kill condition is triggered by documentation.
 
-**Outstanding verification (not closeable by this agent):** the goal requires "redacted
-real-device evidence" from the actual deployed Prompt Pocket Mini App and its real bot, not
-documentation alone. This agent has no physical device or live Telegram client session
-available in this environment. See "Evidence still required" below. Per the issue's kill
-clause, this contract is written on the documented mechanism, but A3/A4 must not begin
-implementation against unconfirmed device behavior — the confirmation step below is a
-precondition, not a formality.
+**A1 closure (manager decision, lease 2, 2026-09-02):** documented Telegram Bot API behavior
+is sufficient evidence to close A1 and to build A3/A4 against this contract. The real-device
+confirmation below is deferred: it is a **pre-release integration gate**, not an A3
+implementation blocker. A3/A4 may proceed against the documented mechanism.
 
-### Evidence still required before A3 starts
+### Evidence still required before release (pre-release integration gate, not an A3 blocker)
 
-A human with the real Prompt Pocket bot in Telegram must:
+A human with the real Prompt Pocket bot in Telegram must, before this flow ships to real
+users:
 
 1. Open Prompt Pocket via the bot's Menu Button (the actual configured launch surface, not
    a browser tab).
@@ -48,9 +46,8 @@ A human with the real Prompt Pocket bot in Telegram must:
    string, the `hash` value, the `query_id` value, or any `user.id`/username.** Field
    presence only.
 
-This evidence gates A3 (server build), not A1's contract freeze — the contract can be
-written from documented behavior, but no server code should be built against it until the
-live query_id presence is confirmed on the real launch surface.
+This evidence gates release (tracked at A4/A7), not A1's contract freeze and not A3's start.
+The contract is written from documented behavior; A3 may build server code against it now.
 
 ## Request
 
@@ -70,9 +67,15 @@ catalog, never trusts client-supplied prompt content).
 ## Validation (server-side, before any other step)
 
 1. Recompute the data-check-string from `initData` (all fields except `hash`, sorted
-   alphabetically as `key=value` joined by `\n`) and verify
-   `HMAC_SHA256(data_check_string, HMAC_SHA256(bot_token, "WebAppData")) == hash`. Reject on
+   alphabetically as `key=value` joined by `\n`). Derive `secret_key = HMAC_SHA256(key:
+   "WebAppData", message: bot_token)`, then compute
+   `expected_hash = HMAC_SHA256(key: secret_key, message: data_check_string)`. Compare
+   `expected_hash` to the received `hash` using a constant-time comparison. Reject on
    mismatch with a generic `invalid_init_data` error; do not echo the received hash.
+   (Verified against `core.telegram.org/bots/webapps`, "Validating data received via the
+   Mini App": the constant `WebAppData` is the HMAC key for deriving the secret, the bot
+   token is the message; the secret is then the key for the outer HMAC over the
+   data-check-string.)
 2. Reject if `auth_date` is older than 5 minutes (chosen conservative bound; Telegram's docs
    do not mandate a figure). Error: `stale_init_data`.
 3. Reject if `initDataUnsafe.query_id` is absent. Error: `missing_query_id` — this is the
