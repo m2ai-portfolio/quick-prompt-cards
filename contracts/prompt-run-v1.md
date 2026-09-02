@@ -68,7 +68,7 @@ catalog, never trusts client-supplied prompt content).
 
 1. Recompute the data-check-string from `initData` (all fields except `hash`, sorted
    alphabetically as `key=value` joined by `\n`). Derive `secret_key = HMAC_SHA256(key:
-   "WebAppData", message: bot_token)`, then compute
+"WebAppData", message: bot_token)`, then compute
    `expected_hash = HMAC_SHA256(key: secret_key, message: data_check_string)`. Compare
    `expected_hash` to the received `hash` using a constant-time comparison. Reject on
    mismatch with a generic `invalid_init_data` error; do not echo the received hash.
@@ -96,20 +96,29 @@ catalog, never trusts client-supplied prompt content).
 
 ## Outcomes
 
-| Outcome | Condition | Client-visible result |
-|---|---|---|
-| `posted` | `answerWebAppQuery` succeeded | Mini App closes (Telegram's own behavior); bot chat shows the posted prompt as a user message, followed by the existing bot's normal response. |
-| `rejected` | Any validation failure above | Mini App stays open; user sees the specific safe error and, where applicable, the fallback affordance. |
-| `telegram_error` | `answerWebAppQuery` call itself failed (Telegram API error, transport failure) | See retry boundary below. |
+| Outcome                 | Condition                                                                      | Client-visible result                                                                                                                          |
+| ----------------------- | ------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `posted`                | `answerWebAppQuery` succeeded                                                  | Mini App closes (Telegram's own behavior); bot chat shows the posted prompt as a user message, followed by the existing bot's normal response. |
+| `rejected`              | Any validation failure above                                                   | Mini App stays open; user sees the specific safe error and, where applicable, the fallback affordance.                                         |
+| `telegram_error`        | `answerWebAppQuery` call itself failed (Telegram API error, transport failure) | See retry boundary below.                                                                                                                      |
+| `duplicate_in_progress` | An atomic claim already exists in `pending` state                              | Return HTTP 409 with this safe code; do not call Telegram. The client waits for the original request outcome and never resubmits the query ID. |
+| `already_posted`        | An atomic claim is terminal `posted`                                           | Return HTTP 200 with this safe code; do not call Telegram. The client treats delivery as complete.                                             |
+| `already_consumed`      | An atomic claim is terminal `telegram_error` or otherwise ambiguous            | Return HTTP 409 with this safe code; do not call Telegram. The client requires a fresh Mini App launch.                                        |
 
 ## Idempotency key
 
 The idempotency key is the Telegram-issued `query_id` itself, as parsed from the
 server-validated `initData` string (see Validation step 3), never the client-side
 `initDataUnsafe.query_id`. It is opaque, single-use, and already unique per Mini App session
-— the server does not mint its own key. The server must track `query_id` values it has
-already attempted to answer (in-memory or short-TTL store is sufficient; `query_id` sessions
-are short-lived) to detect a duplicate client request for a `query_id` already consumed.
+— the server does not mint its own key. After all request validation and before any Telegram
+call, the server must atomically compare-and-set a short-TTL claim for the validated
+`query_id` from absent to `pending`. Only the handler that creates that claim may call
+`answerWebAppQuery`. The claim transitions exactly once to terminal `posted` or
+`telegram_error`; an ambiguous post-write outcome is terminal `telegram_error`. Every
+concurrent or later handler reads the existing claim, returns `duplicate_in_progress`,
+`already_posted`, or `already_consumed` as defined above, and never calls Telegram. The claim
+store may be in memory for a single-process deployment or a shared atomic store for multiple
+processes, but check-then-set without atomicity is forbidden.
 
 ## Single-use / retry boundary
 
