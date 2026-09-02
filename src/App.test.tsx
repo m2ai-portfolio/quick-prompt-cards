@@ -8,6 +8,14 @@ beforeEach(() => {
 });
 
 describe("Prompt Pocket", () => {
+  it("uses M2AI product branding", () => {
+    render(<App />);
+
+    expect(
+      screen.getByText("M2AI · AI ENHANCEMENT, ENABLEMENT & EXECUTION"),
+    ).toBeInTheDocument();
+  });
+
   it("searches cards and builds a copy-ready prompt from guided answers", async () => {
     const user = userEvent.setup();
     render(<App />);

@@ -84,7 +84,7 @@ export default function App() {
           <Sparkles size={20} strokeWidth={2.2} />
         </div>
         <div>
-          <p className="eyebrow">STACEY'S AI TOOLKIT</p>
+          <p className="eyebrow">M2AI · AI ENHANCEMENT, ENABLEMENT & EXECUTION</p>
           <h1>Prompt Pocket</h1>
           <p className="header-copy">
             Pick a task. Add your details. Copy a prompt that is ready to use.

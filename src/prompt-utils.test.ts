@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { buildPrompt, filterPrompts, toggleFavorite } from "./prompt-utils";
+import { prompts } from "./prompts";
 import type { PromptCard } from "./types";
 
 const cards: PromptCard[] = [
   {
     id: "email",
+    kind: "prompt",
     title: "Write a clear email",
     description: "Turn notes into a polished message.",
     category: "Writing",
@@ -17,9 +19,16 @@ const cards: PromptCard[] = [
         placeholder: "Project update",
       },
     ],
+    action: {
+      type: "prompt-delivery",
+      requiresConfirmation: true,
+      preferred: "telegram-webapp-query",
+      fallback: "clipboard",
+    },
   },
   {
     id: "research",
+    kind: "prompt",
     title: "Research a decision",
     description: "Compare options before choosing.",
     category: "Research",
@@ -32,8 +41,30 @@ const cards: PromptCard[] = [
         placeholder: "A and B",
       },
     ],
+    action: {
+      type: "prompt-delivery",
+      requiresConfirmation: true,
+      preferred: "telegram-webapp-query",
+      fallback: "clipboard",
+    },
   },
 ];
+
+describe("prompt card schema", () => {
+  it("marks every existing card as a confirmed prompt-delivery card", () => {
+    expect(prompts).not.toHaveLength(0);
+    expect(
+      prompts.every(
+        (card) =>
+          card.kind === "prompt" &&
+          card.action.type === "prompt-delivery" &&
+          card.action.requiresConfirmation === true &&
+          card.action.preferred === "telegram-webapp-query" &&
+          card.action.fallback === "clipboard",
+      ),
+    ).toBe(true);
+  });
+});
 
 describe("filterPrompts", () => {
   it("matches title, description, category, and tags without case sensitivity", () => {

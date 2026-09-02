@@ -1,6 +1,8 @@
 import type { PromptCard } from "./types";
 
-export const prompts: PromptCard[] = [
+type PromptCardDefinition = Omit<PromptCard, "kind" | "action">;
+
+const promptDefinitions: PromptCardDefinition[] = [
   {
     id: "clear-email",
     title: "Write a clear email",
@@ -473,6 +475,17 @@ Painful problem: {{problem}}
 Return: a one-sentence offer, the concrete outcome, what is included, what remains the buyer’s responsibility, three likely objections, and the smallest credible next step. Flag any claim that needs evidence.`,
   },
 ];
+
+export const prompts: PromptCard[] = promptDefinitions.map((card) => ({
+  ...card,
+  kind: "prompt",
+  action: {
+    type: "prompt-delivery",
+    requiresConfirmation: true,
+    preferred: "telegram-webapp-query",
+    fallback: "clipboard",
+  },
+}));
 
 export const categories = [
   "All",
