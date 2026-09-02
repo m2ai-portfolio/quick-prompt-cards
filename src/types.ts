@@ -1,11 +1,3 @@
-export type PromptField = {
-  key: string;
-  label: string;
-  placeholder: string;
-  help?: string;
-  multiline?: boolean;
-};
-
 export type CardKind = "prompt" | "workflow";
 
 export type BaseCard = {
@@ -26,8 +18,7 @@ export type PromptDeliveryAction = {
 
 export type PromptCard = BaseCard & {
   kind: "prompt";
-  template: string;
-  fields: PromptField[];
+  prompt: string;
   action: PromptDeliveryAction;
   example?: string;
 };

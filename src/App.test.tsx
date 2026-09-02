@@ -1,12 +1,28 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
-import type { Card } from "./types";
+import type { Card, PromptCard } from "./types";
 
 beforeEach(() => {
   localStorage.clear();
 });
+
+const promptCard: PromptCard = {
+  id: "prompt-example",
+  kind: "prompt",
+  title: "Prompt example",
+  description: "A prompt card",
+  category: "Writing",
+  tags: [],
+  prompt: "A complete, ready-to-run prompt.",
+  action: {
+    type: "prompt-delivery",
+    requiresConfirmation: true,
+    preferred: "telegram-webapp-query",
+    fallback: "clipboard",
+  },
+};
 
 describe("Prompt Pocket", () => {
   it("uses M2AI product branding", () => {
@@ -23,25 +39,20 @@ describe("Prompt Pocket", () => {
     expect(screen.queryAllByText("Prompt")).toHaveLength(0);
   });
 
+  it("renders no prompt fields, builder, preview, copy button, or paste instructions", () => {
+    render(<App />);
+
+    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /copy finished prompt/i }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText(/paste it into/i)).not.toBeInTheDocument();
+  });
+
   it("renders a keyboard-discoverable unavailable workflow outcome", async () => {
     const user = userEvent.setup();
     const cards: Card[] = [
-      {
-        id: "prompt-example",
-        kind: "prompt",
-        title: "Prompt example",
-        description: "A prompt card",
-        category: "Writing",
-        tags: [],
-        template: "Example",
-        fields: [],
-        action: {
-          type: "prompt-delivery",
-          requiresConfirmation: true,
-          preferred: "telegram-webapp-query",
-          fallback: "clipboard",
-        },
-      },
+      promptCard,
       {
         id: "silver-platter",
         kind: "workflow",
@@ -60,7 +71,7 @@ describe("Prompt Pocket", () => {
     render(<App cards={cards} />);
 
     const promptAction = screen.getByRole("button", {
-      name: "Open prompt: Prompt example",
+      name: "Run prompt: Prompt example",
     });
     const workflowOutcome = screen.getByRole("button", {
       name: "Workflow Workflow example is not available yet",
@@ -81,42 +92,74 @@ describe("Prompt Pocket", () => {
     expect(workflowOutcome).toHaveFocus();
   });
 
-  it("searches cards and builds a copy-ready prompt from guided answers", async () => {
+  it("searches cards by title, description, category, and tags", async () => {
     const user = userEvent.setup();
     render(<App />);
 
     await user.type(screen.getByRole("searchbox"), "email");
     expect(
       screen.getByRole("button", {
-        name: /^open prompt: write a clear email$/i,
+        name: /^run prompt: write a clear email$/i,
       }),
     ).toBeInTheDocument();
     expect(
       screen.queryByRole("button", {
-        name: /^open prompt: compare my options$/i,
+        name: /^run prompt: compare my options$/i,
       }),
     ).not.toBeInTheDocument();
+  });
 
-    await user.click(
-      screen.getByRole("button", {
-        name: /^open prompt: write a clear email$/i,
-      }),
+  it("dispatches a card exactly once per tap with no redundant confirmation", async () => {
+    const user = userEvent.setup();
+    const runPrompt = vi.fn().mockResolvedValue({ status: "dispatched" });
+
+    render(<App cards={[promptCard]} runPrompt={runPrompt} />);
+
+    const button = screen.getByRole("button", {
+      name: "Run prompt: Prompt example",
+    });
+    await user.click(button);
+
+    expect(runPrompt).toHaveBeenCalledTimes(1);
+    expect(runPrompt).toHaveBeenCalledWith(promptCard);
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+
+    await waitFor(() =>
+      expect(screen.getByText("Sent to Telegram")).toBeInTheDocument(),
     );
-    await user.type(
-      screen.getByLabelText(/what do you need to say/i),
-      "The appointment moved to Friday.",
+  });
+
+  it("ignores a second tap while the first dispatch is still pending", async () => {
+    const user = userEvent.setup();
+    let resolveDispatch: (() => void) | undefined;
+    const runPrompt = vi.fn(
+      () =>
+        new Promise<{ status: "dispatched" }>((resolve) => {
+          resolveDispatch = () => resolve({ status: "dispatched" });
+        }),
     );
-    await user.type(screen.getByLabelText(/who will receive it/i), "A client");
+
+    render(<App cards={[promptCard]} runPrompt={runPrompt} />);
+
+    const button = screen.getByRole("button", {
+      name: "Run prompt: Prompt example",
+    });
+    await user.click(button);
+    await user.click(button);
+
+    expect(runPrompt).toHaveBeenCalledTimes(1);
+
+    resolveDispatch?.();
+    await waitFor(() =>
+      expect(screen.getByText("Sent to Telegram")).toBeInTheDocument(),
+    );
+  });
+
+  it("shows an explicit, separate fallback notice outside Telegram", () => {
+    render(<App cards={[promptCard]} />);
+
     expect(
-      screen.getByText(
-        (content, element) =>
-          element?.tagName === "PRE" &&
-          content.includes("The appointment moved to Friday."),
-      ),
+      screen.getByText(/copies the finished prompt to your clipboard/i),
     ).toBeInTheDocument();
-    await user.click(
-      screen.getByRole("button", { name: /copy finished prompt/i }),
-    );
-    expect(screen.getByText(/copied and ready/i)).toBeInTheDocument();
   });
 });

@@ -22,16 +22,6 @@ export function filterPrompts<T extends BaseCard>(
   });
 }
 
-export function buildPrompt(
-  template: string,
-  answers: Record<string, string>,
-): string {
-  return template.replace(/{{(\w+)}}/g, (_match, key: string) => {
-    const answer = answers[key]?.trim();
-    return answer || `[${key.replace(/_/g, " ").toUpperCase()} NEEDED]`;
-  });
-}
-
 export function toggleFavorite(favorites: string[], id: string): string[] {
   return favorites.includes(id)
     ? favorites.filter((favoriteId) => favoriteId !== id)

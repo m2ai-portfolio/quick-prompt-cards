@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildPrompt, filterPrompts, toggleFavorite } from "./prompt-utils";
+import { filterPrompts, toggleFavorite } from "./prompt-utils";
 import { prompts } from "./prompts";
 import type { PromptCard } from "./types";
 
@@ -11,14 +11,7 @@ const cards: PromptCard[] = [
     description: "Turn notes into a polished message.",
     category: "Writing",
     tags: ["message", "work"],
-    template: "Write an email about {{topic}}.",
-    fields: [
-      {
-        key: "topic",
-        label: "What is it about?",
-        placeholder: "Project update",
-      },
-    ],
+    prompt: "Write an email about the topic I give you.",
     action: {
       type: "prompt-delivery",
       requiresConfirmation: true,
@@ -33,14 +26,7 @@ const cards: PromptCard[] = [
     description: "Compare options before choosing.",
     category: "Research",
     tags: ["compare", "decision"],
-    template: "Compare {{options}}.",
-    fields: [
-      {
-        key: "options",
-        label: "What are the options?",
-        placeholder: "A and B",
-      },
-    ],
+    prompt: "Compare the options I give you.",
     action: {
       type: "prompt-delivery",
       requiresConfirmation: true,
@@ -51,7 +37,7 @@ const cards: PromptCard[] = [
 ];
 
 describe("prompt card schema", () => {
-  it("marks every existing card as a confirmed prompt-delivery card", () => {
+  it("marks every existing card as a confirmed prompt-delivery card with a unique id and no placeholders", () => {
     expect(prompts).not.toHaveLength(0);
     expect(
       prompts.every(
@@ -60,9 +46,13 @@ describe("prompt card schema", () => {
           card.action.type === "prompt-delivery" &&
           card.action.requiresConfirmation === true &&
           card.action.preferred === "telegram-webapp-query" &&
-          card.action.fallback === "clipboard",
+          card.action.fallback === "clipboard" &&
+          !card.prompt.includes("{{"),
       ),
     ).toBe(true);
+
+    const ids = prompts.map((card) => card.id);
+    expect(new Set(ids).size).toBe(ids.length);
   });
 });
 
@@ -71,17 +61,6 @@ describe("filterPrompts", () => {
     expect(filterPrompts(cards, "POLISHED", "All")).toEqual([cards[0]]);
     expect(filterPrompts(cards, "compare", "All")).toEqual([cards[1]]);
     expect(filterPrompts(cards, "", "Writing")).toEqual([cards[0]]);
-  });
-});
-
-describe("buildPrompt", () => {
-  it("replaces repeated placeholders and marks missing answers clearly", () => {
-    const template =
-      "Explain {{topic}}. Then give an example of {{topic}} for {{audience}}.";
-
-    expect(buildPrompt(template, { topic: "budgeting", audience: "" })).toBe(
-      "Explain budgeting. Then give an example of budgeting for [AUDIENCE NEEDED].",
-    );
   });
 });
 

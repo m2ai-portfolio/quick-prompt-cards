@@ -2,24 +2,39 @@ import { useEffect, useMemo, useState } from "react";
 import {
   Bookmark,
   BookmarkCheck,
-  Check,
   ChevronRight,
-  Copy,
   Search,
   Sparkles,
   X,
 } from "lucide-react";
-import { buildPrompt, filterPrompts, toggleFavorite } from "./prompt-utils";
+import { filterPrompts, toggleFavorite } from "./prompt-utils";
 import { categories, prompts } from "./prompts";
+import {
+  copyPromptToClipboard,
+  isTelegramWebAppSupported,
+  runPrompt as dispatchPrompt,
+  sendWebAppQuery,
+  type RunPromptResult,
+} from "./telegram-actions";
 import type { Card, PromptCard } from "./types";
 
 const FAVORITES_KEY = "prompt-pocket-favorites";
 
-type AppProps = {
-  cards?: Card[];
+type RunStatus = "pending" | "dispatched" | "fallback-copied" | "error";
+
+const STATUS_LABEL: Record<RunStatus, string> = {
+  pending: "Sending…",
+  dispatched: "Sent to Telegram",
+  "fallback-copied": "Copied to clipboard",
+  error: "Couldn't send — try again",
 };
 
-export default function App({ cards = prompts }: AppProps) {
+type AppProps = {
+  cards?: Card[];
+  runPrompt?: (card: PromptCard) => Promise<RunPromptResult>;
+};
+
+export default function App({ cards = prompts, runPrompt }: AppProps) {
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState<string>("All");
   const [favoritesOnly, setFavoritesOnly] = useState(false);
@@ -32,9 +47,21 @@ export default function App({ cards = prompts }: AppProps) {
       return [];
     }
   });
-  const [selectedPrompt, setSelectedPrompt] = useState<PromptCard | null>(null);
-  const [answers, setAnswers] = useState<Record<string, string>>({});
-  const [copied, setCopied] = useState(false);
+  const [runStatus, setRunStatus] = useState<Record<string, RunStatus>>({});
+
+  const isTelegramContext =
+    typeof window !== "undefined" && Boolean(window.Telegram?.WebApp);
+
+  const defaultRunPrompt = useMemo(
+    () => (card: PromptCard) =>
+      dispatchPrompt(card, {
+        isTelegramSupported: isTelegramWebAppSupported,
+        sendWebAppQuery,
+        copyToClipboard: copyPromptToClipboard,
+      }),
+    [],
+  );
+  const runPromptAction = runPrompt ?? defaultRunPrompt;
 
   useEffect(() => {
     window.Telegram?.WebApp.ready();
@@ -52,33 +79,37 @@ export default function App({ cards = prompts }: AppProps) {
       : filtered;
   }, [cards, category, favorites, favoritesOnly, query]);
 
-  const openPrompt = (prompt: PromptCard) => {
-    setSelectedPrompt(prompt);
-    setAnswers({});
-    setCopied(false);
-    window.Telegram?.WebApp.HapticFeedback?.impactOccurred("light");
-  };
-
-  const closePrompt = () => {
-    setSelectedPrompt(null);
-    setAnswers({});
-    setCopied(false);
-  };
-
   const updateFavorite = (id: string) => {
     setFavorites((current) => toggleFavorite(current, id));
     window.Telegram?.WebApp.HapticFeedback?.impactOccurred("light");
   };
 
-  const finishedPrompt = selectedPrompt
-    ? buildPrompt(selectedPrompt.template, answers)
-    : "";
+  const clearRunStatus = (id: string) => {
+    setRunStatus((current) => {
+      const next = { ...current };
+      delete next[id];
+      return next;
+    });
+  };
 
-  const copyPrompt = async () => {
-    await navigator.clipboard.writeText(finishedPrompt);
-    setCopied(true);
-    window.Telegram?.WebApp.HapticFeedback?.notificationOccurred("success");
-    window.setTimeout(() => setCopied(false), 2200);
+  const handleRunPrompt = async (card: PromptCard) => {
+    if (runStatus[card.id] === "pending") return;
+
+    setRunStatus((current) => ({ ...current, [card.id]: "pending" }));
+    window.Telegram?.WebApp.HapticFeedback?.impactOccurred("light");
+
+    try {
+      const result = await runPromptAction(card);
+      setRunStatus((current) => ({ ...current, [card.id]: result.status }));
+      window.Telegram?.WebApp.HapticFeedback?.notificationOccurred(
+        result.status === "dispatched" ? "success" : "warning",
+      );
+    } catch {
+      setRunStatus((current) => ({ ...current, [card.id]: "error" }));
+      window.Telegram?.WebApp.HapticFeedback?.notificationOccurred("error");
+    }
+
+    window.setTimeout(() => clearRunStatus(card.id), 2600);
   };
 
   return (
@@ -93,7 +124,8 @@ export default function App({ cards = prompts }: AppProps) {
           </p>
           <h1>Prompt Pocket</h1>
           <p className="header-copy">
-            Pick a task. Add your details. Copy a prompt that is ready to use.
+            Tap a card to run it. Every prompt is ready to go, no filling in
+            blanks and no copy-paste.
           </p>
         </div>
       </header>
@@ -143,6 +175,13 @@ export default function App({ cards = prompts }: AppProps) {
         </div>
       </section>
 
+      {!isTelegramContext && (
+        <p className="fallback-banner">
+          Outside Telegram, tapping a card copies the finished prompt to your
+          clipboard instead of sending it automatically.
+        </p>
+      )}
+
       <section className="results" aria-live="polite">
         <div className="results-heading">
           <h2>
@@ -161,6 +200,7 @@ export default function App({ cards = prompts }: AppProps) {
           <div className="prompt-grid">
             {visibleCards.map((card) => {
               const isFavorite = favorites.includes(card.id);
+              const status = runStatus[card.id];
               return (
                 <article className="prompt-card" key={card.id}>
                   <div className="card-topline">
@@ -181,12 +221,18 @@ export default function App({ cards = prompts }: AppProps) {
                   {card.kind === "prompt" ? (
                     <button
                       className="card-open"
-                      onClick={() => openPrompt(card)}
-                      aria-label={`Open prompt: ${card.title}`}
+                      onClick={() => handleRunPrompt(card)}
+                      aria-label={`Run prompt: ${card.title}`}
+                      disabled={status === "pending"}
                     >
                       <span>
                         <strong>{card.title}</strong>
                         <small>{card.description}</small>
+                        {status && (
+                          <span className="run-status">
+                            {STATUS_LABEL[status]}
+                          </span>
+                        )}
                       </span>
                       <ChevronRight size={21} aria-hidden="true" />
                     </button>
@@ -232,93 +278,10 @@ export default function App({ cards = prompts }: AppProps) {
 
       <footer>
         <p>
-          Prompts help the AI understand your goal. Always review the answer
-          before using it.
+          Every prompt card sends a complete, ready-to-run prompt with one tap.
+          Always review the response before using it.
         </p>
       </footer>
-
-      {selectedPrompt && (
-        <div
-          className="drawer-layer"
-          role="presentation"
-          onMouseDown={(event) => {
-            if (event.target === event.currentTarget) closePrompt();
-          }}
-        >
-          <section
-            className="prompt-drawer"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="drawer-title"
-          >
-            <div className="drawer-handle" aria-hidden="true" />
-            <div className="drawer-header">
-              <div>
-                <span className="category-label">
-                  {selectedPrompt.category}
-                </span>
-                <h2 id="drawer-title">{selectedPrompt.title}</h2>
-                <p>{selectedPrompt.description}</p>
-              </div>
-              <button
-                className="close-button"
-                onClick={closePrompt}
-                aria-label="Close prompt"
-              >
-                <X size={22} />
-              </button>
-            </div>
-
-            <div className="guided-fields">
-              <div className="section-label">
-                <span>1</span>
-                <h3>Add your details</h3>
-              </div>
-              {selectedPrompt.fields.map((field) => {
-                const FieldElement = field.multiline ? "textarea" : "input";
-                return (
-                  <label key={field.key}>
-                    <span>{field.label}</span>
-                    <FieldElement
-                      value={answers[field.key] ?? ""}
-                      onChange={(event) =>
-                        setAnswers((current) => ({
-                          ...current,
-                          [field.key]: event.target.value,
-                        }))
-                      }
-                      placeholder={field.placeholder}
-                      rows={field.multiline ? 4 : undefined}
-                    />
-                    {field.help && <small>{field.help}</small>}
-                  </label>
-                );
-              })}
-            </div>
-
-            <div className="prompt-preview">
-              <div className="section-label">
-                <span>2</span>
-                <h3>Your finished prompt</h3>
-              </div>
-              <pre>{finishedPrompt}</pre>
-            </div>
-
-            <div className="drawer-actions">
-              <button
-                className={`copy-button ${copied ? "copied" : ""}`}
-                onClick={copyPrompt}
-              >
-                {copied ? <Check size={20} /> : <Copy size={20} />}
-                {copied ? "Copied and ready" : "Copy finished prompt"}
-              </button>
-              <p>
-                Paste it into Gemini, ChatGPT, Claude, or another AI assistant.
-              </p>
-            </div>
-          </section>
-        </div>
-      )}
     </main>
   );
 }
