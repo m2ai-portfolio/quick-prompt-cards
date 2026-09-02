@@ -64,12 +64,12 @@ A4 + A6 → A7 integrated QA, review, and release
 
 ### A1 — Verify Telegram launch capability and freeze contracts
 
-- Observable outcome: The actual Prompt Pocket menu-button launch records whether validated init data includes a usable Web App query ID. The prompt-run request/response contract and automation-state contract are written without implementing either feature.
+- Observable outcome: Current official Telegram documentation establishes that Menu Button launches use the supported Web App query mechanism, and the prompt-run request/response plus automation-state contracts are frozen without implementing either feature. By Matt's 2026-09-02 decision, real-device field-presence proof moves to A4/A7 before integration/release; it is not an A1/A3 blocker.
 - Owner: CE planner through a Paperclip-native Claude adapter; Hermes verifies.
-- Sink: `contracts/prompt-run-v1.md`, `contracts/automation-state-v1.md`, and an issue comment containing redacted device evidence.
-- Kill: If the real menu-button launch does not provide the supported one-tap query mechanism, stop. Present supported alternatives and their tap counts; do not silently substitute composer insertion, clipboard, or a second-tap flow.
+- Sink: `contracts/prompt-run-v1.md`, `contracts/automation-state-v1.md`, and an issue comment citing the official capability evidence plus the explicit deferred-device-test decision.
+- Kill: If official documentation no longer supports the one-tap query mechanism, stop A1. If the A4/A7 real-device check later disproves it, stop integration/release and present supported alternatives with their tap counts; never silently substitute composer insertion, clipboard, or a second-tap flow.
 - blockedBy: none; can start immediately because it is the capability gate for every implementation issue.
-- Done when: The contracts name request fields, validation rules, outcomes, idempotency key, single-use query and retry boundaries, error behavior, fallback boundary, storage boundary, and exact evidence from the real Telegram launch. No token or raw init data is persisted in the evidence.
+- Done when: The contracts name request fields, validation rules, outcomes, an atomic idempotency claim, single-use query and retry boundaries, error behavior, fallback boundary, and storage boundary, with current official Telegram citations. The issue records Matt's decision deferring redacted real-device field-presence evidence to A4/A7. No token or raw init data is persisted in evidence.
 - Path allowlist: `contracts/**`, `src/vite-env.d.ts`.
 - CE route: `ce-brainstorm` then `ce-plan`; no implementation skill.
 
@@ -102,7 +102,7 @@ A4 + A6 → A7 integrated QA, review, and release
 - Sink: integrated client/server change, test-chat evidence, and issue comment with redacted request/result correlation.
 - Kill: Stop if the path adds a second confirmation, asks the user to paste, attempts composer mutation, silently falls back inside Telegram, or causes duplicate posting.
 - blockedBy: A2 and A3.
-- Done when: Client tests cover supported and unsupported launch contexts, timeout, duplicate-tap suppression, and the single-use query boundary. The client does not retry a used or ambiguous query ID; it surfaces the failure and requires a fresh Mini App launch. A designated Telegram test-chat smoke shows one card tap, one posted user-authorized prompt, and one normal bot response. No secret appears in browser assets.
+- Done when: Client tests cover supported and unsupported launch contexts, timeout, duplicate-tap suppression, and the single-use query boundary. The client does not retry a used or ambiguous query ID; it surfaces the failure and requires a fresh Mini App launch. Before integration acceptance, the real Menu Button launch records redacted field-presence booleans for `query_id`, `user`, `auth_date`, and `hash` only. A designated Telegram test-chat smoke shows one card tap, one posted user-authorized prompt, and one normal bot response. No secret appears in browser assets.
 - Path allowlist: `src/telegram-actions.ts`, `src/vite-env.d.ts`, related tests, and `server/**` integration seams. A2 owns the `src/App.tsx` runPrompt wiring; A4 verifies it without editing that file.
 - CE route: `ce-work`; QA later owned by A7.
 
