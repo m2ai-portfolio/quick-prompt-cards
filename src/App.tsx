@@ -45,7 +45,7 @@ export default function App({ cards = prompts }: AppProps) {
     localStorage.setItem(FAVORITES_KEY, JSON.stringify(favorites));
   }, [favorites]);
 
-  const visiblePrompts = useMemo(() => {
+  const visibleCards = useMemo(() => {
     const filtered = filterPrompts(cards, query, category);
     return favoritesOnly
       ? filtered.filter((prompt) => favorites.includes(prompt.id))
@@ -153,14 +153,13 @@ export default function App({ cards = prompts }: AppProps) {
                 : category}
           </h2>
           <span>
-            {visiblePrompts.length}{" "}
-            {visiblePrompts.length === 1 ? "prompt" : "prompts"}
+            {visibleCards.length} {visibleCards.length === 1 ? "card" : "cards"}
           </span>
         </div>
 
-        {visiblePrompts.length > 0 ? (
+        {visibleCards.length > 0 ? (
           <div className="prompt-grid">
-            {visiblePrompts.map((card) => {
+            {visibleCards.map((card) => {
               const isFavorite = favorites.includes(card.id);
               return (
                 <article className="prompt-card" key={card.id}>

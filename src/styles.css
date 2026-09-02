@@ -288,6 +288,18 @@ h1 {
   color: var(--accent);
   transform: translateX(3px);
 }
+.card-open:disabled {
+  cursor: not-allowed;
+}
+.workflow-label {
+  display: block;
+  margin-bottom: 5px;
+  color: var(--accent);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.075em;
+  text-transform: uppercase;
+}
 
 .empty-state {
   display: grid;

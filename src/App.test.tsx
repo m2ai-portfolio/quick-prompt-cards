@@ -23,7 +23,8 @@ describe("Prompt Pocket", () => {
     expect(screen.queryAllByText("Prompt")).toHaveLength(0);
   });
 
-  it("renders distinct accessible actions for prompt and workflow cards", () => {
+  it("renders a keyboard-discoverable unavailable workflow outcome", async () => {
+    const user = userEvent.setup();
     const cards: Card[] = [
       {
         id: "prompt-example",
@@ -74,14 +75,20 @@ describe("Prompt Pocket", () => {
 
     await user.type(screen.getByRole("searchbox"), "email");
     expect(
-      screen.getByRole("button", { name: /^open write a clear email$/i }),
+      screen.getByRole("button", {
+        name: /^open prompt: write a clear email$/i,
+      }),
     ).toBeInTheDocument();
     expect(
-      screen.queryByRole("button", { name: /^open compare my options$/i }),
+      screen.queryByRole("button", {
+        name: /^open prompt: compare my options$/i,
+      }),
     ).not.toBeInTheDocument();
 
     await user.click(
-      screen.getByRole("button", { name: /^open write a clear email$/i }),
+      screen.getByRole("button", {
+        name: /^open prompt: write a clear email$/i,
+      }),
     );
     await user.type(
       screen.getByLabelText(/what do you need to say/i),

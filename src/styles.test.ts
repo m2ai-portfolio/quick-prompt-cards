@@ -20,8 +20,11 @@ function channel(value: number): number {
 
 function luminance(hex: string): number {
   const channels = hex.match(/[\da-f]{2}/gi);
-  if (!channels || channels.length !== 3) throw new Error(`Invalid color ${hex}`);
-  const [red, green, blue] = channels.map((value) => channel(parseInt(value, 16)));
+  if (!channels || channels.length !== 3)
+    throw new Error(`Invalid color ${hex}`);
+  const [red, green, blue] = channels.map((value) =>
+    channel(parseInt(value, 16)),
+  );
   return 0.2126 * red + 0.7152 * green + 0.0722 * blue;
 }
 
@@ -56,9 +59,9 @@ describe("M2AI design tokens", () => {
       surface: expect.any(String),
     });
     expect(contrast(colors.accent, colors.surface)).toBeGreaterThanOrEqual(4.5);
-    expect(contrast(colors["accent-ink"], colors.accent)).toBeGreaterThanOrEqual(
-      4.5,
-    );
+    expect(
+      contrast(colors["accent-ink"], colors.accent),
+    ).toBeGreaterThanOrEqual(4.5);
     expect(contrast(colors.focus, colors.surface)).toBeGreaterThanOrEqual(3);
   });
 
