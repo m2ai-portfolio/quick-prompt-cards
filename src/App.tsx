@@ -31,7 +31,7 @@ const STATUS_LABEL: Record<RunStatus, string> = {
 
 type AppProps = {
   cards?: Card[];
-  runPrompt?: (card: PromptCard) => Promise<RunPromptResult>;
+  runPrompt?: (cardId: string) => Promise<RunPromptResult>;
 };
 
 export default function App({ cards = prompts, runPrompt }: AppProps) {
@@ -49,19 +49,30 @@ export default function App({ cards = prompts, runPrompt }: AppProps) {
   });
   const [runStatus, setRunStatus] = useState<Record<string, RunStatus>>({});
 
-  const isTelegramContext =
-    typeof window !== "undefined" && Boolean(window.Telegram?.WebApp);
+  const cardsById = useMemo(
+    () => new Map(cards.map((card) => [card.id, card])),
+    [cards],
+  );
 
   const defaultRunPrompt = useMemo(
-    () => (card: PromptCard) =>
-      dispatchPrompt(card, {
+    () => (cardId: string) => {
+      const card = cardsById.get(cardId) as PromptCard;
+      return dispatchPrompt(card, {
         isTelegramSupported: isTelegramWebAppSupported,
         sendWebAppQuery,
         copyToClipboard: copyPromptToClipboard,
-      }),
-    [],
+      });
+    },
+    [cardsById],
   );
   const runPromptAction = runPrompt ?? defaultRunPrompt;
+
+  // window.Telegram?.WebApp presence only tells us the page loaded inside a
+  // Telegram launch, not whether one-tap dispatch actually works there. A3
+  // (validated init data -> server-resolved prompt) hasn't shipped, so
+  // isTelegramWebAppSupported() is the only source of truth for whether a
+  // tap will dispatch or silently fall back to the clipboard.
+  const supportsOneTapDispatch = isTelegramWebAppSupported();
 
   useEffect(() => {
     window.Telegram?.WebApp.ready();
@@ -99,7 +110,7 @@ export default function App({ cards = prompts, runPrompt }: AppProps) {
     window.Telegram?.WebApp.HapticFeedback?.impactOccurred("light");
 
     try {
-      const result = await runPromptAction(card);
+      const result = await runPromptAction(card.id);
       setRunStatus((current) => ({ ...current, [card.id]: result.status }));
       window.Telegram?.WebApp.HapticFeedback?.notificationOccurred(
         result.status === "dispatched" ? "success" : "warning",
@@ -175,10 +186,10 @@ export default function App({ cards = prompts, runPrompt }: AppProps) {
         </div>
       </section>
 
-      {!isTelegramContext && (
+      {!supportsOneTapDispatch && (
         <p className="fallback-banner">
-          Outside Telegram, tapping a card copies the finished prompt to your
-          clipboard instead of sending it automatically.
+          Tapping a card copies the finished prompt to your clipboard instead
+          of sending it automatically.
         </p>
       )}
 

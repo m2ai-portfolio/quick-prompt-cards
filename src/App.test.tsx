@@ -18,7 +18,7 @@ const promptCard: PromptCard = {
   prompt: "A complete, ready-to-run prompt.",
   action: {
     type: "prompt-delivery",
-    requiresConfirmation: true,
+    requiresConfirmation: false,
     preferred: "telegram-webapp-query",
     fallback: "clipboard",
   },
@@ -121,7 +121,7 @@ describe("Prompt Pocket", () => {
     await user.click(button);
 
     expect(runPrompt).toHaveBeenCalledTimes(1);
-    expect(runPrompt).toHaveBeenCalledWith(promptCard);
+    expect(runPrompt).toHaveBeenCalledWith(promptCard.id);
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
 
     await waitFor(() =>

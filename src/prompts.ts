@@ -6,7 +6,7 @@ export const prompts: PromptCard[] = promptCatalog.map((card) => ({
   kind: "prompt",
   action: {
     type: "prompt-delivery",
-    requiresConfirmation: true,
+    requiresConfirmation: false,
     preferred: "telegram-webapp-query",
     fallback: "clipboard",
   },
