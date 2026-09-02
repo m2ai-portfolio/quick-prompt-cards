@@ -23,7 +23,8 @@ describe("Prompt Pocket", () => {
     expect(screen.queryAllByText("Prompt")).toHaveLength(0);
   });
 
-  it("renders a keyboard-discoverable unavailable workflow outcome", () => {
+  it("renders a keyboard-discoverable unavailable workflow outcome", async () => {
+    const user = userEvent.setup();
     const cards: Card[] = [
       {
         id: "prompt-example",
@@ -58,14 +59,26 @@ describe("Prompt Pocket", () => {
 
     render(<App cards={cards} />);
 
-    expect(
-      screen.getByRole("button", { name: "Open prompt: Prompt example" }),
-    ).toBeEnabled();
-    expect(
-      screen.getByRole("button", {
-        name: "Workflow Workflow example is not available yet",
-      }),
-    ).toBeDisabled();
+    const promptAction = screen.getByRole("button", {
+      name: "Open prompt: Prompt example",
+    });
+    const workflowOutcome = screen.getByRole("button", {
+      name: "Workflow Workflow example is not available yet",
+    });
+
+    expect(promptAction).toBeEnabled();
+    expect(workflowOutcome).toBeEnabled();
+    expect(workflowOutcome).toHaveAttribute("aria-disabled", "true");
+    expect(screen.getByText("Not available yet")).toBeInTheDocument();
+
+    for (
+      let step = 0;
+      step < 30 && document.activeElement !== workflowOutcome;
+      step += 1
+    ) {
+      await user.tab();
+    }
+    expect(workflowOutcome).toHaveFocus();
   });
 
   it("searches cards and builds a copy-ready prompt from guided answers", async () => {

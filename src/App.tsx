@@ -192,14 +192,18 @@ export default function App({ cards = prompts }: AppProps) {
                     </button>
                   ) : (
                     <button
+                      type="button"
                       className="card-open"
                       aria-label={`Workflow ${card.title} is not available yet`}
-                      disabled
+                      aria-disabled="true"
                     >
                       <span>
                         <span className="workflow-label">Workflow</span>
                         <strong>{card.title}</strong>
                         <small>{card.description}</small>
+                        <span className="workflow-status">
+                          Not available yet
+                        </span>
                       </span>
                       <ChevronRight size={21} aria-hidden="true" />
                     </button>
