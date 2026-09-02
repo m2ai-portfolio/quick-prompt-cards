@@ -96,41 +96,98 @@ type SilverPlatterWizardState = {
   workflowId: "silver-platter";
   currentStage: SilverPlatterStageId;
   status: WizardStatus;
-  answers: Record<string, unknown>;
-  completedStages: string[];
+  answers: SilverPlatterInterviewAnswersV1;
+  completedStages: SilverPlatterStageId[];
   updatedAt: string;
+};
+
+type SilverPlatterBrowserSubmissionV1 = {
+  contract: "silver-platter-browser-submission/v1";
+  workflowId: "silver-platter";
+  schemaVersion: "1.0";
+  answers: SilverPlatterInterviewAnswersV1;
+};
+
+type SilverPlatterServerContextV1 = {
+  contract: "silver-platter-server-context/v1";
+  workflowId: "silver-platter";
+  normalizedInterview: {
+    answers: SilverPlatterInterviewAnswersV1;
+    completedStages: SilverPlatterStageId[];
+  };
+  audit: {
+    branch: "greenfield" | "audit-existing";
+    observedSetup: Array<{
+      kind: "skill" | "agent" | "rule" | "hook" | "mcp";
+      name: string;
+      evidence: string;
+    }>;
+  };
+  auditData?: {
+    schema: "audit-data/v1";
+    business_overview: unknown;
+    workflow_analysis: unknown;
+    data_infrastructure: unknown;
+    ai_implementation: unknown;
+    email?: string;
+    timestamp?: string;
+    sourceHash: string;
+  };
 };
 ```
 
-Runtime validation is required before loading persisted state or accepting server responses. Exact validator choice is a Phase 1 decision; do not add a dependency without measuring bundle and maintenance cost.
+`SilverPlatterInterviewAnswersV1` is not an open dictionary. Before Phase 4 persistence, it must become a runtime-validated object whose keys are the stable stage IDs above and whose values are the exact question IDs and answer types from the canonical skill. Exact validator choice is a Phase 1 decision; do not add a dependency without measuring bundle and maintenance cost.
 
-The browser state and the skill's `--resume` mode are different layers. Browser state resumes an unsubmitted interview. After server submission, the executor owns a server-side working directory and maps the validated state to `silver_platter_output/data_map.json`; only that executor may invoke the skill's `--resume` against that directory. The browser never names or controls a filesystem path.
+The browser state and the skill's `--resume` mode are different layers. `SilverPlatterWizardState` resumes an unsubmitted interview locally, but `currentStage`, `status`, and `completedStages` are never accepted as executor authority. The browser may submit only `SilverPlatterBrowserSubmissionV1`, which contains validated answers; any client-supplied `audit`, `auditData`, completed-stage/skip marker, provenance value, filesystem path, or execution option is rejected. The server recomputes `normalizedInterview.completedStages` from the accepted answer schema. Stage 0 runs server-side. Optional Stage 0.5 AuditData is ingested through a separate server-controlled validation path, and the server computes its source hash. Only the server may construct `SilverPlatterServerContextV1`.
+
+The canonical skill documents `--resume` only for an existing full-v2 `silver_platter_output/data_map.json`; it does not provide a machine-readable schema or accept browser state directly. Prompt Pocket therefore owns a compatibility contract, not a canonical validator. The contract must live at `contracts/silver-platter-compatibility-v1.schema.json` with its field map at `contracts/silver-platter-compatibility-v1.md`. After submission, the executor validates the browser payload, combines it with server-derived audit context, materializes a compatibility-validated full-v2-shaped map, and only then invokes the documented `--resume` path in its own working directory. The browser never names or controls a filesystem path.
+
+### Required handoff mapping before persistence
+
+| Handoff source                                            | Canonical destination/behavior                                  | Proof required                                                                           |
+| --------------------------------------------------------- | --------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| `interview.answers.1_speed`                               | Interview mode and explanation depth                            | Saved answer survives import and is not re-asked.                                        |
+| `interview.answers.2_archetype.business_description`      | `business` description/how-money-is-made fields                 | Exact user wording survives import.                                                      |
+| `interview.answers.2_archetype.confirmed_archetype`       | Canonical business archetype                                    | Runtime rejects unsupported slugs; accepted value is not re-asked.                       |
+| Every later `interview.answers.<stage>.<questionId>`      | Named full-v2 field or explicit interview checkpoint            | No anonymous keys; add one mapping row and fixture assertion before adding the question. |
+| server-derived `audit.branch` and `audit.observedSetup[]` | Stage 0 provenance plus skip markers for already observed setup | Reject forged browser audit fields; previously observed setup is not re-asked.           |
+| `auditData.business_overview`                             | Stage 2 archetype/sizing and opportunity framing                | Preserve source hash and confirm only ambiguity.                                         |
+| `auditData.workflow_analysis.tasks[]`                     | Stage 3 Pantry and Stage 6.5 recipe candidates                  | Imported tasks are not re-entered manually.                                              |
+| `auditData.data_infrastructure`                           | Stage 5 data-reality fields                                     | Quality and willingness constraints survive import.                                      |
+| `auditData.ai_implementation`                             | Stage 6.6 build constraints and Stage 8 framing                 | Compliance, budget, preference, and interested tools survive import.                     |
+| `auditData.email`, `timestamp`, `sourceHash`              | Report provenance only                                          | These values never alter authority or skip unrelated questions.                          |
+
+The mapping table is executable scope, not documentation-only. Before Phase 4, replace every `unknown` placeholder with the authoritative AuditData types, commit the application-owned JSON Schema and field map, and generate `contracts/silver-platter-source-manifest.json` containing hashes for the canonical `SKILL.md`, renderer, archetype/question references, and selected worked examples that informed compatibility v1. A source-hash change invalidates the gate and requires contract review; a matching hash does not imply the skill published an official schema.
+
+Phase 5 must include a disposable fixture that starts from saved Stage 1-2 browser state, derives both Stage 0 branches on the server, optionally ingests Stage 0.5 through the server validator, creates the executor-owned directory, materializes an application-contract-valid full-v2-shaped map, invokes the supported resume path, and proves answered or audit-derived questions are not asked again. A negative test must submit forged client `audit`, `auditData`, skip-marker, and provenance fields and prove they are rejected before context construction. Production execution authority still remains Phase 7.
 
 ## Phase table
 
-| Phase | Outcome | Schema/status gate before work | Required end-of-phase tests | Independent review gate |
-|---|---|---|---|---|
-| 0 | Reconnaissance and schema freeze | Clean Git status; live card schema read; Silver Platter stages/output schema read; Telegram delivery semantics verified; bridge status verified | `npx prettier --check .`; `npx tsc --noEmit`; `npm test`; `npm run lint`; `npm run build`; `npm audit`; final `git status --short --branch` | Reviewer checks that no unsupported Telegram claim, browser secret, or inactive custom bridge entered the plan |
-| 1 | M2AI tokens plus discriminated card schema | Re-fetch Git status and Phase 0 tracker; review exact schema diff; include replacement of `STACEY'S AI TOOLKIT` with approved M2AI copy; no implementation worker active | RED tests for prompt/workflow discrimination, approved M2AI copy, and palette token presence; GREEN targeted tests; full typecheck/test/lint/build/audit; no Git drift | Paperclip-native reviewer compares diff to schema and M2AI palette |
-| 2 | Prompt-card action abstraction with safe browser fallback | Card schema version `1.0` validated; choose delivery wording; no bot token in client env | RED then GREEN tests for confirmation, adapter invocation, unsupported-host clipboard fallback, errors, and no silent send; full gates | Reviewer checks action semantics and HIL behavior |
-| 3 | Telegram message-delivery backend | Live Telegram/Bot API method and request/response schemas reverified; backend hosting and secret source approved; server validates Telegram init data | Contract tests, invalid-signature negative test, expired init-data test, idempotency test, Telegram test-chat smoke, full client/server gates | Paperclip-native reviewer inspects authority surface, token confinement, idempotency, and proof from test chat |
-| 4 | Workflow-card shell and resumable wizard engine | Workflow schema `1.0` and persistence choice approved; migration behavior defined | RED then GREEN tests for workflow-card routing, stage navigation, required fields, resume, corrupt-state recovery, browser fallback, mobile keyboard | Reviewer checks state-machine drift and confirms ordinary prompt cards still work |
-| 5 | Silver Platter vertical slice | Canonical skill checksum/path and Stage 0-2 question/output contract reverified; browser receives only a sanitized schema | Tests for card appearance, Walkthrough/Fast Track, business description, archetype confirmation, save/resume, back/close, schema rejection; full gates | Reviewer compares wizard wording and transitions with canonical skill Stage 1-2 |
-| 6 | Full Silver Platter interview | Reverify all stage schemas and conditional branches, including audit-existing, Stage 0.5 AuditData intake, recipes, setup priority, channels, regulated archetypes, and Stage 9.5 developer availability | One vertical RED/GREEN cycle per stage; conditional-branch tests; complete/resume fixture; accessibility/mobile; full gates | Reviewer checks omitted/re-asked questions, schema completeness, plain language, and regulated-data boundaries |
-| 7 | Server-side Silver Platter execution and artifacts | Executor authority, working directory, output schema, timeout, budget, and HIL gates approved; skill remains server-side | Fixture run produces four mandatory artifacts and conditional `hire_a_builder.md` when its branch fires; schema validation; timeout/retry/idempotency; no `.claude/` mutation; artifact readback and hashes | Paperclip-native reviewer returns `AGREE`, `MODIFY`, or `REJECT`; Hermes independently verifies artifacts and tests |
-| 8 | Remaining video-feature card roadmap | Silver Platter card accepted and usage evidence reviewed | Tests for each new card as an independent vertical slice | Independent review per slice |
-| 9 | Production release | GitHub Pages/backend URLs, Telegram config, CSP, schema versions, and release marker verified live | Formatter, typecheck, behavioral tests, lint, build, audit, secret scan, desktop/mobile browser smoke, HTTPS fetch, Telegram launch, real approved message flow | Final drift review plus human approval before production switch |
+| Phase | Outcome                                                   | Schema/status gate before work                                                                                                                                                                           | Required end-of-phase tests                                                                                                                                                                                                                                                                                                                                              | Independent review gate                                                                                                        |
+| ----- | --------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------ |
+| 0     | Reconnaissance and schema freeze                          | Clean Git status; live card schema read; Silver Platter stages/output schema read; Telegram delivery semantics verified; bridge status verified                                                          | `npx prettier --check .`; `npx tsc --noEmit`; `npm test`; `npm run lint`; `npm run build`; `npm audit`; final `git status --short --branch`                                                                                                                                                                                                                              | Reviewer checks that no unsupported Telegram claim, browser secret, or inactive custom bridge entered the plan                 |
+| 1     | M2AI tokens plus discriminated card schema                | Re-fetch Git status and Phase 0 tracker; review exact schema diff; include replacement of `STACEY'S AI TOOLKIT` with approved M2AI copy; no implementation worker active                                 | RED tests for prompt/workflow discrimination, approved M2AI copy, and palette token presence; GREEN targeted tests; full typecheck/test/lint/build/audit; no Git drift                                                                                                                                                                                                   | Paperclip-native reviewer compares diff to schema and M2AI palette                                                             |
+| 2     | Prompt-card action abstraction with safe browser fallback | Card schema version `1.0` validated; choose delivery wording; no bot token in client env                                                                                                                 | RED then GREEN tests for confirmation, adapter invocation, unsupported-host clipboard fallback, errors, and no silent send; full gates                                                                                                                                                                                                                                   | Reviewer checks action semantics and HIL behavior                                                                              |
+| 3     | Telegram message-delivery backend                         | Live Telegram/Bot API method and request/response schemas reverified; backend hosting and secret source approved; server validates Telegram init data                                                    | Contract tests, invalid-signature negative test, expired init-data test, idempotency test, Telegram test-chat smoke, full client/server gates                                                                                                                                                                                                                            | Paperclip-native reviewer inspects authority surface, token confinement, idempotency, and proof from test chat                 |
+| 4     | Workflow-card shell and resumable wizard engine           | Workflow schema `1.0`, browser submission v1, server context v1, application-owned JSON Schema/field map/source manifest, and persistence choice approved; migration behavior defined                    | RED then GREEN tests for workflow-card routing, stage navigation, required fields, resume, corrupt-state recovery, browser fallback, mobile keyboard                                                                                                                                                                                                                     | Reviewer checks state-machine, authority split, and compatibility-contract drift and confirms ordinary prompt cards still work |
+| 5     | Silver Platter vertical slice                             | Canonical skill source manifest and Stage 0-2 question/output contract reverified; application compatibility schema/field map frozen; browser receives only a sanitized interview schema                 | Tests for card appearance, Walkthrough/Fast Track, business description, archetype confirmation, save/resume, back/close, schema rejection; forged-audit negative test; disposable partial-state → application-valid map → `--resume` fixture derives Stage 0 server-side and covers optional server-ingested Stage 0.5 without re-asking answered questions; full gates | Reviewer compares wizard wording, authority split, compatibility contract, and fixture with canonical skill Stage 0-2          |
+| 6     | Full Silver Platter interview                             | Reverify all stage schemas and conditional branches, including audit-existing, Stage 0.5 AuditData intake, recipes, setup priority, channels, regulated archetypes, and Stage 9.5 developer availability | One vertical RED/GREEN cycle per stage; conditional-branch tests; complete/resume fixture; accessibility/mobile; full gates                                                                                                                                                                                                                                              | Reviewer checks omitted/re-asked questions, schema completeness, plain language, and regulated-data boundaries                 |
+| 7     | Server-side Silver Platter execution and artifacts        | Executor authority, working directory, output schema, timeout, budget, and HIL gates approved; skill remains server-side                                                                                 | Fixture run produces four mandatory artifacts and conditional `hire_a_builder.md` when its branch fires; schema validation; timeout/retry/idempotency; no `.claude/` mutation; artifact readback and hashes                                                                                                                                                              | Paperclip-native reviewer returns `AGREE`, `MODIFY`, or `REJECT`; Hermes independently verifies artifacts and tests            |
+| 8     | Remaining video-feature card roadmap                      | Silver Platter card accepted and usage evidence reviewed                                                                                                                                                 | Tests for each new card as an independent vertical slice                                                                                                                                                                                                                                                                                                                 | Independent review per slice                                                                                                   |
+| 9     | Production release                                        | GitHub Pages/backend URLs, Telegram config, CSP, schema versions, and release marker verified live                                                                                                       | Formatter, typecheck, behavioral tests, lint, build, audit, secret scan, desktop/mobile browser smoke, HTTPS fetch, Telegram launch, real approved message flow                                                                                                                                                                                                          | Final drift review plus human approval before production switch                                                                |
 
 ## Detailed phase execution
 
 ### Phase 0: Reconnaissance and freeze
 
 **Files:**
+
 - Create: `.hermes/plans/2026-09-01-prompt-pocket-silver-platter-blueprint.md`
 - Create: `IMPLEMENTATION_TRACKER.md`
 - Read only: `src/types.ts`, `src/prompts.ts`, `src/App.tsx`, tests, Telegram docs, Silver Platter skill/references, bridge status.
 
 **Steps:**
+
 1. Record exact Git commit/branch/dirty state.
 2. Record current client schema and Telegram type surface.
 3. Extract Silver Platter stages, output files, recipe schema, and non-negotiable rules.
@@ -144,6 +201,7 @@ The browser state and the skill's `--resume` mode are different layers. Browser 
 ### Phase 1: Card schema and M2AI foundation
 
 **Likely files:**
+
 - Modify: `src/types.ts`, `src/prompts.ts`, `src/styles.css`
 - Create or modify tests: `src/prompt-utils.test.ts`, `src/App.test.tsx`
 - Optional create: `src/card-schema.ts`, only if runtime validation is implemented without needless duplication.
@@ -153,6 +211,7 @@ Use strict RED → GREEN cycles: schema discrimination first, then rendering, ap
 ### Phase 2: Prompt action adapter
 
 **Likely files:**
+
 - Create: `src/telegram-actions.ts`
 - Create: `src/telegram-actions.test.ts`
 - Modify: `src/App.tsx`, `src/vite-env.d.ts`, `src/App.test.tsx`
@@ -166,6 +225,7 @@ Host separately from static Pages. Validate Telegram-signed init data server-sid
 ### Phase 4: Wizard engine
 
 **Likely files:**
+
 - Create: `src/workflows/types.ts`, `src/workflows/wizard-state.ts`, tests
 - Create: `src/components/WorkflowWizard.tsx`, tests
 - Modify: `src/App.tsx`
@@ -175,12 +235,13 @@ Implement generic stage navigation and persistence only. No Silver Platter-speci
 ### Phase 5: Silver Platter card vertical slice
 
 **Likely files:**
+
 - Create: `src/workflows/silver-platter/schema.ts`
 - Create: `src/workflows/silver-platter/stages.ts`
 - Create: `src/workflows/silver-platter/*.test.ts`
 - Modify: card data source and wizard routing.
 
-Ship only Stage 1 speed selection and Stage 2 business description/archetype confirmation. Persist and resume. This proves the full card → wizard → validated state path without attempting the whole interview.
+Ship only Stage 1 speed selection and Stage 2 business description/archetype confirmation. Persist and resume in the browser. Also build the bounded, disposable importer fixture required above so this slice proves card → wizard → validated handoff → canonical full-v2 map → supported `--resume`, without granting the browser execution authority or shipping the production executor.
 
 ### Phases 6-9
 
@@ -189,6 +250,7 @@ Expand one Silver Platter stage at a time, then add the remaining cards shown in
 ## Mandatory phase protocol
 
 Before every phase:
+
 1. Read `IMPLEMENTATION_TRACKER.md` and this plan.
 2. Run `git status --short --branch` and record HEAD.
 3. Re-read the exact schema and authoritative external documentation the phase depends on.
@@ -196,6 +258,7 @@ Before every phase:
 5. Update tracker status to `gated` with the evidence paths.
 
 During every implementation phase (Phases 1-9). Phase 0 is explicitly exempt because it is read-only reconnaissance and uses the baseline verification commands instead:
+
 1. Write one failing behavioral test.
 2. Run it and capture the expected failure.
 3. Write the minimal implementation.
@@ -204,6 +267,7 @@ During every implementation phase (Phases 1-9). Phase 0 is explicitly exempt bec
 6. Repeat vertically.
 
 At every phase end:
+
 1. Run formatter/check policy, typecheck, targeted tests, full tests, lint, build, audit, and secret scan when files could contain credentials.
 2. Verify Git diff and generated `docs/` state.
 3. Update tracker with exact commands/results, issues, blockers, decisions, artifacts, commit, and resume point.
