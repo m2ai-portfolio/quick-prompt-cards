@@ -1,10 +1,10 @@
-import type { PromptCard } from "./types";
+import type { BaseCard } from "./types";
 
-export function filterPrompts(
-  cards: PromptCard[],
+export function filterPrompts<T extends BaseCard>(
+  cards: T[],
   query: string,
   category: string,
-): PromptCard[] {
+): T[] {
   const normalizedQuery = query.trim().toLowerCase();
 
   return cards.filter((card) => {

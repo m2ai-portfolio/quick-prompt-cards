@@ -2,6 +2,7 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it } from "vitest";
 import App from "./App";
+import type { Card } from "./types";
 
 beforeEach(() => {
   localStorage.clear();
@@ -14,6 +15,57 @@ describe("Prompt Pocket", () => {
     expect(
       screen.getByText("M2AI · AI ENHANCEMENT, ENABLEMENT & EXECUTION"),
     ).toBeInTheDocument();
+  });
+
+  it("does not repeat the prompt type as a decorative badge", () => {
+    render(<App />);
+
+    expect(screen.queryAllByText("Prompt")).toHaveLength(0);
+  });
+
+  it("renders distinct accessible actions for prompt and workflow cards", () => {
+    const cards: Card[] = [
+      {
+        id: "prompt-example",
+        kind: "prompt",
+        title: "Prompt example",
+        description: "A prompt card",
+        category: "Writing",
+        tags: [],
+        template: "Example",
+        fields: [],
+        action: {
+          type: "prompt-delivery",
+          requiresConfirmation: true,
+          preferred: "telegram-webapp-query",
+          fallback: "clipboard",
+        },
+      },
+      {
+        id: "silver-platter",
+        kind: "workflow",
+        title: "Workflow example",
+        description: "A workflow card",
+        category: "Business",
+        tags: [],
+        workflow: {
+          id: "silver-platter",
+          schemaVersion: "1.0",
+          entryStage: "1_speed",
+        },
+      },
+    ];
+
+    render(<App cards={cards} />);
+
+    expect(
+      screen.getByRole("button", { name: "Open prompt: Prompt example" }),
+    ).toBeEnabled();
+    expect(
+      screen.getByRole("button", {
+        name: "Workflow Workflow example is not available yet",
+      }),
+    ).toBeDisabled();
   });
 
   it("searches cards and builds a copy-ready prompt from guided answers", async () => {

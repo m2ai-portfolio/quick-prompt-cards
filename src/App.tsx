@@ -11,11 +11,15 @@ import {
 } from "lucide-react";
 import { buildPrompt, filterPrompts, toggleFavorite } from "./prompt-utils";
 import { categories, prompts } from "./prompts";
-import type { PromptCard } from "./types";
+import type { Card, PromptCard } from "./types";
 
 const FAVORITES_KEY = "prompt-pocket-favorites";
 
-export default function App() {
+type AppProps = {
+  cards?: Card[];
+};
+
+export default function App({ cards = prompts }: AppProps) {
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState<string>("All");
   const [favoritesOnly, setFavoritesOnly] = useState(false);
@@ -42,11 +46,11 @@ export default function App() {
   }, [favorites]);
 
   const visiblePrompts = useMemo(() => {
-    const filtered = filterPrompts(prompts, query, category);
+    const filtered = filterPrompts(cards, query, category);
     return favoritesOnly
       ? filtered.filter((prompt) => favorites.includes(prompt.id))
       : filtered;
-  }, [category, favorites, favoritesOnly, query]);
+  }, [cards, category, favorites, favoritesOnly, query]);
 
   const openPrompt = (prompt: PromptCard) => {
     setSelectedPrompt(prompt);
@@ -84,7 +88,9 @@ export default function App() {
           <Sparkles size={20} strokeWidth={2.2} />
         </div>
         <div>
-          <p className="eyebrow">M2AI · AI ENHANCEMENT, ENABLEMENT & EXECUTION</p>
+          <p className="eyebrow">
+            M2AI · AI ENHANCEMENT, ENABLEMENT & EXECUTION
+          </p>
           <h1>Prompt Pocket</h1>
           <p className="header-copy">
             Pick a task. Add your details. Copy a prompt that is ready to use.
@@ -154,16 +160,16 @@ export default function App() {
 
         {visiblePrompts.length > 0 ? (
           <div className="prompt-grid">
-            {visiblePrompts.map((prompt) => {
-              const isFavorite = favorites.includes(prompt.id);
+            {visiblePrompts.map((card) => {
+              const isFavorite = favorites.includes(card.id);
               return (
-                <article className="prompt-card" key={prompt.id}>
+                <article className="prompt-card" key={card.id}>
                   <div className="card-topline">
-                    <span className="category-label">{prompt.category}</span>
+                    <span className="category-label">{card.category}</span>
                     <button
                       className="favorite-button"
-                      onClick={() => updateFavorite(prompt.id)}
-                      aria-label={`${isFavorite ? "Remove" : "Add"} ${prompt.title} ${isFavorite ? "from" : "to"} favorites`}
+                      onClick={() => updateFavorite(card.id)}
+                      aria-label={`${isFavorite ? "Remove" : "Add"} ${card.title} ${isFavorite ? "from" : "to"} favorites`}
                       aria-pressed={isFavorite}
                     >
                       {isFavorite ? (
@@ -173,17 +179,32 @@ export default function App() {
                       )}
                     </button>
                   </div>
-                  <button
-                    className="card-open"
-                    onClick={() => openPrompt(prompt)}
-                    aria-label={`Open ${prompt.title}`}
-                  >
-                    <span>
-                      <strong>{prompt.title}</strong>
-                      <small>{prompt.description}</small>
-                    </span>
-                    <ChevronRight size={21} aria-hidden="true" />
-                  </button>
+                  {card.kind === "prompt" ? (
+                    <button
+                      className="card-open"
+                      onClick={() => openPrompt(card)}
+                      aria-label={`Open prompt: ${card.title}`}
+                    >
+                      <span>
+                        <strong>{card.title}</strong>
+                        <small>{card.description}</small>
+                      </span>
+                      <ChevronRight size={21} aria-hidden="true" />
+                    </button>
+                  ) : (
+                    <button
+                      className="card-open"
+                      aria-label={`Workflow ${card.title} is not available yet`}
+                      disabled
+                    >
+                      <span>
+                        <span className="workflow-label">Workflow</span>
+                        <strong>{card.title}</strong>
+                        <small>{card.description}</small>
+                      </span>
+                      <ChevronRight size={21} aria-hidden="true" />
+                    </button>
+                  )}
                 </article>
               );
             })}
