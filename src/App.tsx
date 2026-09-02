@@ -20,12 +20,14 @@ import type { Card, PromptCard } from "./types";
 
 const FAVORITES_KEY = "prompt-pocket-favorites";
 
-type RunStatus = "pending" | "dispatched" | "fallback-copied" | "error";
+type RunStatus =
+  "pending" | "dispatched" | "fallback-copied" | "unavailable" | "error";
 
 const STATUS_LABEL: Record<RunStatus, string> = {
   pending: "Sending…",
   dispatched: "Sent to Telegram",
   "fallback-copied": "Copied to clipboard",
+  unavailable: "Couldn't send — reopen Prompt Pocket to try again",
   error: "Couldn't send — try again",
 };
 
@@ -54,16 +56,19 @@ export default function App({ cards = prompts, runPrompt }: AppProps) {
     [cards],
   );
 
+  const isInTelegramContext = Boolean(window.Telegram?.WebApp);
+
   const defaultRunPrompt = useMemo(
     () => (cardId: string) => {
       const card = cardsById.get(cardId) as PromptCard;
       return dispatchPrompt(card, {
-        isTelegramSupported: isTelegramWebAppSupported,
+        isInTelegram: () => isInTelegramContext,
+        supportsOneTapDispatch: isTelegramWebAppSupported,
         sendWebAppQuery,
         copyToClipboard: copyPromptToClipboard,
       });
     },
-    [cardsById],
+    [cardsById, isInTelegramContext],
   );
   const runPromptAction = runPrompt ?? defaultRunPrompt;
 
@@ -71,7 +76,9 @@ export default function App({ cards = prompts, runPrompt }: AppProps) {
   // Telegram launch, not whether one-tap dispatch actually works there. A3
   // (validated init data -> server-resolved prompt) hasn't shipped, so
   // isTelegramWebAppSupported() is the only source of truth for whether a
-  // tap will dispatch or silently fall back to the clipboard.
+  // tap will dispatch. The clipboard fallback is plain-browser only: inside
+  // Telegram without dispatch support, a tap surfaces an honest
+  // "unavailable" result instead.
   const supportsOneTapDispatch = isTelegramWebAppSupported();
 
   useEffect(() => {
@@ -186,10 +193,10 @@ export default function App({ cards = prompts, runPrompt }: AppProps) {
         </div>
       </section>
 
-      {!supportsOneTapDispatch && (
+      {!supportsOneTapDispatch && !isInTelegramContext && (
         <p className="fallback-banner">
-          Tapping a card copies the finished prompt to your clipboard instead
-          of sending it automatically.
+          Tapping a card copies the finished prompt to your clipboard instead of
+          sending it automatically.
         </p>
       )}
 

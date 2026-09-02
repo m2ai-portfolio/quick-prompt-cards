@@ -18,7 +18,6 @@ const promptCard: PromptCard = {
   prompt: "A complete, ready-to-run prompt.",
   action: {
     type: "prompt-delivery",
-    requiresConfirmation: false,
     preferred: "telegram-webapp-query",
     fallback: "clipboard",
   },
@@ -161,5 +160,43 @@ describe("Prompt Pocket", () => {
     expect(
       screen.getByText(/copies the finished prompt to your clipboard/i),
     ).toBeInTheDocument();
+  });
+
+  it("never falls back to the clipboard inside Telegram when one-tap dispatch is unavailable", async () => {
+    const user = userEvent.setup();
+    const writeText = vi.fn();
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText },
+      configurable: true,
+    });
+    window.Telegram = {
+      WebApp: {
+        ready: vi.fn(),
+        expand: vi.fn(),
+        close: vi.fn(),
+      },
+    };
+
+    try {
+      render(<App cards={[promptCard]} />);
+
+      expect(
+        screen.queryByText(/copies the finished prompt to your clipboard/i),
+      ).not.toBeInTheDocument();
+
+      const button = screen.getByRole("button", {
+        name: "Run prompt: Prompt example",
+      });
+      await user.click(button);
+
+      await waitFor(() =>
+        expect(
+          screen.getByText("Couldn't send — reopen Prompt Pocket to try again"),
+        ).toBeInTheDocument(),
+      );
+      expect(writeText).not.toHaveBeenCalled();
+    } finally {
+      delete window.Telegram;
+    }
   });
 });

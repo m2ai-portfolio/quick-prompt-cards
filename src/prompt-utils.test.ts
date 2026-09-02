@@ -14,7 +14,6 @@ const cards: PromptCard[] = [
     prompt: "Write an email about the topic I give you.",
     action: {
       type: "prompt-delivery",
-      requiresConfirmation: false,
       preferred: "telegram-webapp-query",
       fallback: "clipboard",
     },
@@ -29,7 +28,6 @@ const cards: PromptCard[] = [
     prompt: "Compare the options I give you.",
     action: {
       type: "prompt-delivery",
-      requiresConfirmation: false,
       preferred: "telegram-webapp-query",
       fallback: "clipboard",
     },
@@ -44,7 +42,6 @@ describe("prompt card schema", () => {
         (card) =>
           card.kind === "prompt" &&
           card.action.type === "prompt-delivery" &&
-          card.action.requiresConfirmation === false &&
           card.action.preferred === "telegram-webapp-query" &&
           card.action.fallback === "clipboard" &&
           !card.prompt.includes("{{"),

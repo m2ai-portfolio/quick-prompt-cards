@@ -1,27 +1,35 @@
 import type { PromptCard } from "./types";
 
 export type RunPromptDependencies = {
-  isTelegramSupported: () => boolean;
+  isInTelegram: () => boolean;
+  supportsOneTapDispatch: () => boolean;
   sendWebAppQuery: (cardId: string) => Promise<void>;
   copyToClipboard: (prompt: string) => Promise<void>;
 };
 
 export type RunPromptResult =
-  { status: "dispatched" } | { status: "fallback-copied" };
+  | { status: "dispatched" }
+  | { status: "fallback-copied" }
+  | { status: "unavailable" };
 
 /**
- * One card tap is the whole user action: it either dispatches the stored
- * prompt straight into the Telegram chat, or, outside a supported Telegram
- * launch, copies the finished prompt as an explicit fallback. There is no
- * second confirmation step.
+ * One card tap is the whole user action, and the clipboard fallback is a
+ * plain-browser-only affordance. Telegram presence and dispatch capability
+ * are detected separately: inside Telegram without one-tap dispatch shipped,
+ * a tap must surface an honest "unavailable" result asking for a fresh
+ * launch, never silently fall back to the clipboard.
  */
 export async function runPrompt(
   card: PromptCard,
   dependencies: RunPromptDependencies,
 ): Promise<RunPromptResult> {
-  if (dependencies.isTelegramSupported()) {
+  if (dependencies.supportsOneTapDispatch()) {
     await dependencies.sendWebAppQuery(card.id);
     return { status: "dispatched" };
+  }
+
+  if (dependencies.isInTelegram()) {
+    return { status: "unavailable" };
   }
 
   await dependencies.copyToClipboard(card.prompt);

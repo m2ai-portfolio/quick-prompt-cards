@@ -11,7 +11,6 @@ export type BaseCard = {
 
 export type PromptDeliveryAction = {
   type: "prompt-delivery";
-  requiresConfirmation: false;
   preferred: "telegram-webapp-query";
   fallback: "clipboard";
 };
