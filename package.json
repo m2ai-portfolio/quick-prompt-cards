@@ -10,7 +10,10 @@
     "test:watch": "vitest",
     "lint": "eslint .",
     "format": "prettier --write .",
-    "preview": "vite preview --host 0.0.0.0"
+    "preview": "vite preview --host 0.0.0.0",
+    "typecheck:server": "tsc -p tsconfig.server.json --noEmit",
+    "build:server": "tsc -p tsconfig.server.json",
+    "start:server": "node server/dist/server/index.js"
   },
   "dependencies": {
     "lucide-react": "^0.468.0",
