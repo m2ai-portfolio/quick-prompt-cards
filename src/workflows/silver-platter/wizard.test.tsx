@@ -24,16 +24,35 @@ async function openWizard() {
   return user;
 }
 
-async function fillFullSlice(user: ReturnType<typeof userEvent.setup>) {
+async function fillPaceAndExistingSetup(
+  user: ReturnType<typeof userEvent.setup>,
+  pace: "walkthrough" | "fast_track" = "walkthrough",
+) {
   await user.selectOptions(
     screen.getByLabelText("How much explanation do you want?"),
-    "walkthrough",
+    pace,
   );
+  await user.selectOptions(
+    screen.getByLabelText("Are you already using Claude Code for this work?"),
+    "not_yet",
+  );
+  await user.type(
+    screen.getByLabelText(/^What other automation runs today\?/),
+    "Nothing yet.",
+  );
+}
+
+async function fillFullSlice(user: ReturnType<typeof userEvent.setup>) {
+  await fillPaceAndExistingSetup(user);
   await user.click(screen.getByRole("button", { name: "Next" }));
 
   await user.type(
     screen.getByLabelText("Describe your business or work in 1-2 sentences."),
     "I run a small landscaping crew and quote jobs by phone.",
+  );
+  await user.selectOptions(
+    screen.getByLabelText(/^Which of these fits your business best\?/),
+    "local_trades",
   );
   await user.click(screen.getByRole("button", { name: "Next" }));
 
@@ -80,13 +99,35 @@ describe("Silver Platter card", () => {
     expect(screen.getByText("Quote Follow-Up Drafter")).toBeInTheDocument();
   });
 
-  it("blocks advancing past a step until its required field is answered", async () => {
+  it("shows the Mini App Stage 0 limitation and existing-setup questions on the opening step", async () => {
+    await openWizard();
+
+    expect(
+      screen.getByRole("heading", { name: "Choose your pace" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/can't see your project folder/i),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByLabelText("Are you already using Claude Code for this work?"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByLabelText(/^What other automation runs today\?/),
+    ).toBeInTheDocument();
+  });
+
+  it("blocks advancing past a step until its required fields are answered", async () => {
     const user = await openWizard();
 
     await user.click(screen.getByRole("button", { name: "Next" }));
 
     expect(
       screen.getByText("How much explanation do you want? is required."),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Are you already using Claude Code for this work? is required.",
+      ),
     ).toBeInTheDocument();
     expect(
       screen.getByRole("heading", { name: "Choose your pace" }),
@@ -96,10 +137,7 @@ describe("Silver Platter card", () => {
   it("supports back navigation without losing an already-entered answer", async () => {
     const user = await openWizard();
 
-    await user.selectOptions(
-      screen.getByLabelText("How much explanation do you want?"),
-      "fast_track",
-    );
+    await fillPaceAndExistingSetup(user, "fast_track");
     await user.click(screen.getByRole("button", { name: "Next" }));
     await user.click(screen.getByRole("button", { name: "Back" }));
 
@@ -108,15 +146,16 @@ describe("Silver Platter card", () => {
         "How much explanation do you want?",
       ).value,
     ).toBe("fast_track");
+    expect(
+      screen.getByLabelText<HTMLSelectElement>(
+        "Are you already using Claude Code for this work?",
+      ).value,
+    ).toBe("not_yet");
   });
 
   it("saves progress on close and resumes at the same step with the same answers", async () => {
     const user = await openWizard();
-
-    await user.selectOptions(
-      screen.getByLabelText("How much explanation do you want?"),
-      "walkthrough",
-    );
+    await fillPaceAndExistingSetup(user);
     await user.click(screen.getByRole("button", { name: "Next" }));
     await user.type(
       screen.getByLabelText("Describe your business or work in 1-2 sentences."),
