@@ -381,6 +381,35 @@ describe("wizard-state persistence: storage fallback", () => {
     expect(result).toBe(true);
   });
 
+  it("does not corrupt a real workflow record whose id collides with the write-probe key", () => {
+    const key = storageKeyFor("__write-probe__");
+    const stored = validStoredState({ workflowId: "__write-probe__" });
+    window.localStorage.setItem(key, JSON.stringify(stored));
+
+    createAutomationStorage();
+
+    expect(JSON.parse(window.localStorage.getItem(key) as string)).toEqual(
+      stored,
+    );
+  });
+
+  it("fails closed to memory when the probe write succeeds but removing it throws", () => {
+    const store = new Map<string, string>();
+    const backing = {
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: (key: string, value: string) => {
+        store.set(key, value);
+      },
+      removeItem: () => {
+        throw new Error("cleanup blocked");
+      },
+    } as unknown as Storage;
+
+    const storage = createAutomationStorage(backing);
+
+    expect(storage.isAvailable).toBe(false);
+  });
+
   it("falls back to in-memory storage when window.localStorage itself throws on access", () => {
     const descriptor = Object.getOwnPropertyDescriptor(window, "localStorage");
     Object.defineProperty(window, "localStorage", {

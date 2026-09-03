@@ -142,14 +142,38 @@ export function createAutomationStorage(backing?: Storage): AutomationStorage {
   // on write (quota-exhausted or write-restricted storage). Without this
   // probe, isAvailable stays true until the first real save, so the
   // persistence-loss warning only appears after the user has already typed
-  // an answer. Probe using a dedicated key, never the caller's real data, so
-  // this can never overwrite or observe actual wizard state.
+  // an answer. The probe key is a valid workflow storage key (a workflow
+  // could legitimately be named "__write-probe__"), so this must never
+  // destroy or clobber a real record living there: read whatever occupies
+  // the key first and restore it on every recoverable path. If cleanup
+  // can't be guaranteed (write succeeds but removal/restore throws), fail
+  // closed to memory rather than risk leaving corrupted residue behind.
   if (available && resolvedBacking) {
+    let existing: string | null = null;
     try {
-      resolvedBacking.setItem(WRITE_PROBE_KEY, "1");
-      resolvedBacking.removeItem(WRITE_PROBE_KEY);
+      existing = resolvedBacking.getItem(WRITE_PROBE_KEY);
     } catch {
       available = false;
+    }
+
+    if (available) {
+      try {
+        resolvedBacking.setItem(WRITE_PROBE_KEY, "1");
+      } catch {
+        available = false;
+      }
+    }
+
+    if (available) {
+      try {
+        if (existing === null) {
+          resolvedBacking.removeItem(WRITE_PROBE_KEY);
+        } else {
+          resolvedBacking.setItem(WRITE_PROBE_KEY, existing);
+        }
+      } catch {
+        available = false;
+      }
     }
   }
 

@@ -246,4 +246,98 @@ describe("Prompt Pocket", () => {
       screen.getByRole("dialog", { name: "Workflow example" }),
     ).toBeInTheDocument();
   });
+
+  it("keeps in-memory progress across close and reopen in the same tab when browser storage is blocked", async () => {
+    const blockedPrefix = "prompt-pocket:automation-state";
+    const originalGetItem = Storage.prototype.getItem;
+    const originalSetItem = Storage.prototype.setItem;
+    const originalRemoveItem = Storage.prototype.removeItem;
+
+    vi.spyOn(Storage.prototype, "getItem").mockImplementation(function (
+      this: Storage,
+      key: string,
+    ) {
+      if (key.startsWith(blockedPrefix)) throw new Error("blocked");
+      return originalGetItem.call(this, key);
+    });
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(function (
+      this: Storage,
+      key: string,
+      value: string,
+    ) {
+      if (key.startsWith(blockedPrefix)) throw new Error("blocked");
+      return originalSetItem.call(this, key, value);
+    });
+    vi.spyOn(Storage.prototype, "removeItem").mockImplementation(function (
+      this: Storage,
+      key: string,
+    ) {
+      if (key.startsWith(blockedPrefix)) throw new Error("blocked");
+      return originalRemoveItem.call(this, key);
+    });
+
+    const user = userEvent.setup();
+    const workflowDefinition: WorkflowDefinition = {
+      id: "silver-platter",
+      schemaVersion: "1.0",
+      title: "Workflow example",
+      steps: [
+        {
+          id: "step-one",
+          title: "Step one",
+          fields: [
+            { key: "name", label: "Name", type: "text", required: true },
+          ],
+        },
+        {
+          id: "step-two",
+          title: "Step two",
+          fields: [{ key: "detail", label: "Detail", type: "text" }],
+        },
+      ],
+    };
+    const cards: Card[] = [
+      {
+        id: "silver-platter",
+        kind: "workflow",
+        title: "Workflow example",
+        description: "A workflow card",
+        category: "Business",
+        tags: [],
+        workflow: {
+          id: "silver-platter",
+          schemaVersion: "1.0",
+          entryStage: "1_speed",
+        },
+      },
+    ];
+
+    render(
+      <App
+        cards={cards}
+        workflows={{ "silver-platter": workflowDefinition }}
+      />,
+    );
+
+    await user.click(
+      screen.getByRole("button", { name: "Open workflow: Workflow example" }),
+    );
+    await user.type(screen.getByLabelText("Name"), "Acme");
+    await user.click(screen.getByRole("button", { name: "Next" }));
+
+    expect(
+      screen.getByRole("heading", { name: "Step two" }),
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Close" }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+
+    await user.click(
+      screen.getByRole("button", { name: "Open workflow: Workflow example" }),
+    );
+
+    expect(
+      screen.getByRole("heading", { name: "Step two" }),
+    ).toBeInTheDocument();
+  });
 });

@@ -18,6 +18,7 @@ import {
 } from "./telegram-actions";
 import type { Card, PromptCard } from "./types";
 import WorkflowWizard from "./components/WorkflowWizard";
+import { createAutomationStorage } from "./workflows/wizard-state";
 import type { WorkflowDefinition } from "./workflows/types";
 
 const FAVORITES_KEY = "prompt-pocket-favorites";
@@ -58,6 +59,10 @@ export default function App({
   });
   const [runStatus, setRunStatus] = useState<Record<string, RunStatus>>({});
   const [activeWorkflowId, setActiveWorkflowId] = useState<string | null>(null);
+  // Created once per App mount (a tab session) so its in-memory fallback
+  // persists across a workflow wizard closing and reopening in that same
+  // tab, instead of resetting with each WorkflowWizard mount.
+  const [workflowStorage] = useState(() => createAutomationStorage());
 
   const openWorkflow = (workflowId: string) => {
     if (!workflows[workflowId]) return;
@@ -334,6 +339,7 @@ export default function App({
         <WorkflowWizard
           definition={workflows[activeWorkflowId]}
           onClose={closeWorkflow}
+          storage={workflowStorage}
         />
       )}
     </main>

@@ -11,12 +11,18 @@ import {
   loadWizardState,
   saveWizardState,
   updateAnswer,
+  type AutomationStorage,
 } from "../workflows/wizard-state";
 
 type WorkflowWizardProps = {
   definition: WorkflowDefinition;
   onClose: () => void;
   onComplete?: () => void;
+  // Session-scoped storage adapter, hoisted by the caller (App) so its
+  // in-memory fallback map survives this component unmounting on close and
+  // remounting on reopen within the same tab. Falls back to a private
+  // instance for standalone use (e.g. tests rendering the wizard directly).
+  storage?: AutomationStorage;
 };
 
 // answers is workflow-owned (contract rule 5): a value can be any object,
@@ -37,8 +43,10 @@ export default function WorkflowWizard({
   definition,
   onClose,
   onComplete,
+  storage: storageProp,
 }: WorkflowWizardProps) {
-  const [storage] = useState(() => createAutomationStorage());
+  const [ownStorage] = useState(() => createAutomationStorage());
+  const storage = storageProp ?? ownStorage;
   const [initialLoad] = useState(() => loadWizardState(definition, storage));
   const [state, setState] = useState(initialLoad.state);
   const [showResetNotice] = useState(initialLoad.outcome === "reset");
