@@ -2,7 +2,6 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { X } from "lucide-react";
 import { isTerminalStatus, type WorkflowDefinition } from "../workflows/types";
 import {
-  clearWizardState,
   createAutomationStorage,
   goBack,
   goNext,
@@ -17,6 +16,20 @@ type WorkflowWizardProps = {
   onClose: () => void;
   onComplete?: () => void;
 };
+
+// answers is workflow-owned (contract rule 5): a value can be any object,
+// including one whose toString is missing or non-callable (e.g.
+// Object.create(null)). String()/toString() on those throws, so this must
+// never call through to an unverified method.
+function toFieldDisplayValue(raw: unknown): string {
+  if (typeof raw === "string") return raw;
+  if (raw === null || raw === undefined) return "";
+  try {
+    return String(raw);
+  } catch {
+    return "[unsupported value]";
+  }
+}
 
 export default function WorkflowWizard({
   definition,
@@ -114,9 +127,14 @@ export default function WorkflowWizard({
       const next = goNext(current, definition);
       if (Object.keys(next.errors).length === 0) {
         if (isLastStep(current, definition)) {
-          setStorageAvailable(clearWizardState(definition.id, storage));
+          // Finishing must persist a terminal record, not clear it: an
+          // erased record resumes as "fresh" (an editable draft) on the
+          // next open, silently reopening a completed automation (contract
+          // "single-use/retry boundary").
+          const completed = { ...next, status: "completed" as const };
+          setStorageAvailable(saveWizardState(completed, definition, storage));
           onComplete?.();
-          return next;
+          return completed;
         }
         setStorageAvailable(saveWizardState(next, definition, storage));
       }
@@ -197,10 +215,7 @@ export default function WorkflowWizard({
             const errorId = `${field.key}-error`;
             const error = state.errors[field.key];
             const rawValue = state.answers[field.key];
-            const value =
-              typeof rawValue === "string"
-                ? rawValue
-                : (rawValue?.toString() ?? "");
+            const value = toFieldDisplayValue(rawValue);
             const commonProps = {
               "aria-invalid": error ? ("true" as const) : undefined,
               "aria-describedby": error ? errorId : undefined,

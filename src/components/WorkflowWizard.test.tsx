@@ -319,6 +319,57 @@ describe("WorkflowWizard", () => {
     expect(screen.getByText(/already been completed/i)).toBeInTheDocument();
   });
 
+  it("finishing the wizard persists a terminal record and does not reopen as an editable draft", async () => {
+    const user = userEvent.setup();
+    const { unmount } = render(
+      <WorkflowWizard definition={definition} onClose={vi.fn()} />,
+    );
+
+    await user.type(screen.getByLabelText("Name"), "Acme");
+    await user.click(screen.getByRole("button", { name: "Next" }));
+    await user.click(screen.getByRole("button", { name: "Finish" }));
+
+    await waitFor(() =>
+      expect(screen.getByText(/already been completed/i)).toBeInTheDocument(),
+    );
+    expect(
+      screen.queryByRole("button", { name: "Finish" }),
+    ).not.toBeInTheDocument();
+
+    const raw = window.localStorage.getItem(storageKeyFor(definition.id));
+    expect(raw).not.toBeNull();
+    expect(JSON.parse(raw as string)).toMatchObject({ status: "completed" });
+
+    unmount();
+    render(<WorkflowWizard definition={definition} onClose={vi.fn()} />);
+
+    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Finish" }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByText(/already been completed/i)).toBeInTheDocument();
+  });
+
+  it("renders a workflow-owned answer with a non-callable toString instead of crashing", () => {
+    window.localStorage.setItem(
+      storageKeyFor(definition.id),
+      JSON.stringify(
+        validStoredState({
+          status: "draft",
+          currentStageId: "step-one",
+          answers: { name: Object.create(null) },
+        }),
+      ),
+    );
+
+    expect(() =>
+      render(<WorkflowWizard definition={definition} onClose={vi.fn()} />),
+    ).not.toThrow();
+    expect(
+      screen.getByRole("heading", { name: "Step one" }),
+    ).toBeInTheDocument();
+  });
+
   it("does not overwrite the persisted terminal record when reopened", () => {
     const stored = validStoredState({
       status: "submitted",
