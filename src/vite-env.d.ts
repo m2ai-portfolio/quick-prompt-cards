@@ -1,5 +1,19 @@
 /// <reference types="vite/client" />
 
+interface ImportMetaEnv {
+  /**
+   * Public (non-secret) base URL of the deployed prompt-run-v1 server
+   * (contracts/prompt-run-v1.md). Never holds a credential: the bot token
+   * lives only in the server's environment. Left unset means no server is
+   * deployed yet, so one-tap dispatch is treated as unsupported.
+   */
+  readonly VITE_PROMPT_RUN_ENDPOINT?: string;
+}
+
+interface ImportMeta {
+  readonly env: ImportMetaEnv;
+}
+
 type TelegramWebAppInitDataUnsafe = {
   query_id?: string;
   auth_date?: number;
