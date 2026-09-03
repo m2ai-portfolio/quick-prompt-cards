@@ -35,19 +35,21 @@ const cards: PromptCard[] = [
 ];
 
 describe("prompt card schema", () => {
-  it("marks every existing card as a confirmed prompt-delivery card with a unique id and no placeholders", () => {
-    expect(prompts).not.toHaveLength(0);
+  it("marks every existing prompt card as a confirmed prompt-delivery card with no placeholders", () => {
+    const promptCards = prompts.filter((card) => card.kind === "prompt");
+    expect(promptCards).not.toHaveLength(0);
     expect(
-      prompts.every(
+      promptCards.every(
         (card) =>
-          card.kind === "prompt" &&
           card.action.type === "prompt-delivery" &&
           card.action.preferred === "telegram-webapp-query" &&
           card.action.fallback === "clipboard" &&
           !card.prompt.includes("{{"),
       ),
     ).toBe(true);
+  });
 
+  it("gives every card, prompt or workflow, a unique id", () => {
     const ids = prompts.map((card) => card.id);
     expect(new Set(ids).size).toBe(ids.length);
   });
