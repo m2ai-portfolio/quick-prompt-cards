@@ -72,6 +72,28 @@ describe("runPrompt", () => {
     expect(copyToClipboard).not.toHaveBeenCalled();
     expect(sendWebAppQuery).not.toHaveBeenCalled();
   });
+
+  it("resolves to unavailable, not a thrown error, after exactly one failed send attempt (rejection/timeout/ambiguous)", async () => {
+    const sendWebAppQuery = vi
+      .fn()
+      .mockRejectedValue(
+        new Error(
+          'Telegram prompt dispatch for "clear-email" was not confirmed (rejected) and cannot be retried. Close and reopen Prompt Pocket to try again.',
+        ),
+      );
+    const copyToClipboard = vi.fn();
+
+    const result = await runPrompt(card, {
+      isInTelegram: () => true,
+      supportsOneTapDispatch: () => true,
+      sendWebAppQuery,
+      copyToClipboard,
+    });
+
+    expect(result).toEqual({ status: "unavailable" });
+    expect(sendWebAppQuery).toHaveBeenCalledTimes(1);
+    expect(copyToClipboard).not.toHaveBeenCalled();
+  });
 });
 
 function setTelegramWebApp(

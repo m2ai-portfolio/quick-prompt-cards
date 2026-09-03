@@ -24,8 +24,16 @@ export async function runPrompt(
   dependencies: RunPromptDependencies,
 ): Promise<RunPromptResult> {
   if (dependencies.supportsOneTapDispatch()) {
-    await dependencies.sendWebAppQuery(card.id);
-    return { status: "dispatched" };
+    try {
+      await dependencies.sendWebAppQuery(card.id);
+      return { status: "dispatched" };
+    } catch {
+      // sendWebAppQuery burns the session's single-use query_id on any
+      // rejection/timeout/ambiguous outcome, so this is a terminal result,
+      // not a caller-side error: surface the fresh-launch recovery status
+      // instead of letting the exception reach the UI as a generic retry.
+      return { status: "unavailable" };
+    }
   }
 
   if (dependencies.isInTelegram()) {
