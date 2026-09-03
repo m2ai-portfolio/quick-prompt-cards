@@ -155,4 +155,34 @@ describe("wizard-state persistence", () => {
 
     expect(loadWizardState(definition)).toBeNull();
   });
+
+  it("resets when a persisted answer is not a string", () => {
+    saveWizardState(createWizardState(definition));
+    const raw = window.localStorage.getItem(storageKeyFor(definition.id));
+    const parsed = JSON.parse(raw as string);
+    parsed.answers = { name: 3 };
+    window.localStorage.setItem(
+      storageKeyFor(definition.id),
+      JSON.stringify(parsed),
+    );
+
+    expect(loadWizardState(definition)).toBeNull();
+    expect(
+      window.localStorage.getItem(storageKeyFor(definition.id)),
+    ).toBeNull();
+  });
+
+  it("does not throw required-field validation when reloading a corrupt-answer state", () => {
+    saveWizardState(createWizardState(definition));
+    const raw = window.localStorage.getItem(storageKeyFor(definition.id));
+    const parsed = JSON.parse(raw as string);
+    parsed.answers = { name: 3 };
+    window.localStorage.setItem(
+      storageKeyFor(definition.id),
+      JSON.stringify(parsed),
+    );
+
+    const state = loadWizardState(definition) ?? createWizardState(definition);
+    expect(() => goNext(state, definition)).not.toThrow();
+  });
 });

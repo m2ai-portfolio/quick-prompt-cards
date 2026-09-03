@@ -107,6 +107,15 @@ export function clearWizardState(
   storage.removeItem(storageKeyFor(workflowId));
 }
 
+function isWizardAnswers(value: unknown): value is Record<string, string> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+  return Object.values(value as Record<string, unknown>).every(
+    (answer) => typeof answer === "string",
+  );
+}
+
 function isPersistedWizardStateV1(
   value: unknown,
 ): value is PersistedWizardStateV1 {
@@ -117,8 +126,7 @@ function isPersistedWizardStateV1(
     typeof candidate.workflowId === "string" &&
     typeof candidate.schemaVersion === "string" &&
     typeof candidate.stepIndex === "number" &&
-    typeof candidate.answers === "object" &&
-    candidate.answers !== null &&
+    isWizardAnswers(candidate.answers) &&
     typeof candidate.updatedAt === "string"
   );
 }

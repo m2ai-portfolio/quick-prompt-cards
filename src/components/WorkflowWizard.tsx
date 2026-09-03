@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { X } from "lucide-react";
 import type { WorkflowDefinition } from "../workflows/types";
 import {
@@ -27,7 +27,12 @@ export default function WorkflowWizard({
     () => loadWizardState(definition) ?? createWizardState(definition),
   );
   const headingRef = useRef<HTMLHeadingElement>(null);
+  const dialogRef = useRef<HTMLElement>(null);
   const isFirstRender = useRef(true);
+  // Captured at render time, before any effect can move focus elsewhere.
+  const previouslyFocusedRef = useRef<HTMLElement | null>(
+    document.activeElement as HTMLElement | null,
+  );
 
   const step = definition.steps[state.stepIndex];
   const isLast = isLastStep(state, definition);
@@ -40,9 +45,50 @@ export default function WorkflowWizard({
   }, [state.stepIndex]);
 
   useEffect(() => {
+    const previouslyFocused = previouslyFocusedRef.current;
+    return () => {
+      previouslyFocused?.focus?.();
+    };
+  }, []);
+
+  useEffect(() => {
+    const getFocusable = (): HTMLElement[] => {
+      const root = dialogRef.current;
+      if (!root) return [];
+      return Array.from(
+        root.querySelectorAll<HTMLElement>(
+          'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        ),
+      );
+    };
+
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         onClose();
+        return;
+      }
+      if (event.key !== "Tab") return;
+
+      const focusable = getFocusable();
+      if (focusable.length === 0) {
+        event.preventDefault();
+        return;
+      }
+
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      const active = document.activeElement;
+
+      if (event.shiftKey) {
+        if (active === first || !dialogRef.current?.contains(active)) {
+          event.preventDefault();
+          last.focus();
+        }
+      } else {
+        if (active === last || !dialogRef.current?.contains(active)) {
+          event.preventDefault();
+          first.focus();
+        }
       }
     };
     window.addEventListener("keydown", handleKeyDown);
@@ -95,6 +141,7 @@ export default function WorkflowWizard({
       }}
     >
       <section
+        ref={dialogRef}
         className="workflow-wizard"
         role="dialog"
         aria-modal="true"
@@ -121,23 +168,63 @@ export default function WorkflowWizard({
 
         <div className="wizard-fields">
           {step.fields.map((field) => {
-            const FieldElement =
-              field.type === "textarea" ? "textarea" : "input";
             const errorId = `${field.key}-error`;
             const error = state.errors[field.key];
-            return (
-              <label key={field.key} className="wizard-field">
-                <span>{field.label}</span>
-                <FieldElement
-                  value={state.answers[field.key] ?? ""}
+            const value = state.answers[field.key] ?? "";
+            const commonProps = {
+              "aria-invalid": error ? ("true" as const) : undefined,
+              "aria-describedby": error ? errorId : undefined,
+            };
+
+            let control: ReactNode;
+            if (field.type === "select") {
+              control = (
+                <select
+                  value={value}
+                  onChange={(event) =>
+                    handleAnswerChange(field.key, event.target.value)
+                  }
+                  {...commonProps}
+                >
+                  <option value="" disabled hidden>
+                    {field.placeholder ?? "Select an option"}
+                  </option>
+                  {(field.options ?? []).map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              );
+            } else if (field.type === "textarea") {
+              control = (
+                <textarea
+                  value={value}
                   onChange={(event) =>
                     handleAnswerChange(field.key, event.target.value)
                   }
                   placeholder={field.placeholder}
-                  aria-invalid={error ? "true" : undefined}
-                  aria-describedby={error ? errorId : undefined}
-                  rows={field.type === "textarea" ? 4 : undefined}
+                  rows={4}
+                  {...commonProps}
                 />
+              );
+            } else {
+              control = (
+                <input
+                  value={value}
+                  onChange={(event) =>
+                    handleAnswerChange(field.key, event.target.value)
+                  }
+                  placeholder={field.placeholder}
+                  {...commonProps}
+                />
+              );
+            }
+
+            return (
+              <label key={field.key} className="wizard-field">
+                <span>{field.label}</span>
+                {control}
                 {field.help && <small>{field.help}</small>}
                 {error && (
                   <small id={errorId} className="wizard-field-error">

@@ -138,4 +138,68 @@ describe("WorkflowWizard", () => {
       screen.getByRole("heading", { name: "Step two" }),
     ).toBeInTheDocument();
   });
+
+  it("renders a select field as a select control with its options", () => {
+    const selectDefinition: WorkflowDefinition = {
+      id: "select-example",
+      schemaVersion: "1.0",
+      title: "Select workflow",
+      steps: [
+        {
+          id: "step-one",
+          title: "Step one",
+          fields: [
+            {
+              key: "tone",
+              label: "Tone",
+              type: "select",
+              options: [
+                { value: "casual", label: "Casual" },
+                { value: "formal", label: "Formal" },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+
+    render(<WorkflowWizard definition={selectDefinition} onClose={vi.fn()} />);
+
+    const select = screen.getByLabelText("Tone");
+    expect(select.tagName).toBe("SELECT");
+    expect(screen.getByRole("option", { name: "Casual" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Formal" })).toBeInTheDocument();
+  });
+
+  it("traps Tab focus within the dialog", async () => {
+    const user = userEvent.setup();
+    render(<WorkflowWizard definition={definition} onClose={vi.fn()} />);
+
+    const closeButton = screen.getByRole("button", { name: "Close" });
+    const nextButton = screen.getByRole("button", { name: "Next" });
+
+    nextButton.focus();
+    expect(nextButton).toHaveFocus();
+
+    await user.tab();
+    expect(closeButton).toHaveFocus();
+  });
+
+  it("restores focus to the previously focused element on unmount", async () => {
+    const opener = document.createElement("button");
+    opener.textContent = "Open";
+    document.body.appendChild(opener);
+    opener.focus();
+    expect(opener).toHaveFocus();
+
+    const { unmount } = render(
+      <WorkflowWizard definition={definition} onClose={vi.fn()} />,
+    );
+    expect(opener).not.toHaveFocus();
+
+    unmount();
+    expect(opener).toHaveFocus();
+
+    opener.remove();
+  });
 });
