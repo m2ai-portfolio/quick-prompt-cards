@@ -204,6 +204,18 @@ describe("WorkflowWizard", () => {
     ).toBeInTheDocument();
   });
 
+  it("shows the upfront persistence warning before typing when storage is readable but write-protected", () => {
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new Error("QuotaExceededError");
+    });
+
+    render(<WorkflowWizard definition={definition} onClose={vi.fn()} />);
+
+    expect(
+      screen.getByText(/progress can.t be saved right now/i),
+    ).toBeInTheDocument();
+  });
+
   it("does not show the persistence warning when storage works normally", () => {
     render(<WorkflowWizard definition={definition} onClose={vi.fn()} />);
 

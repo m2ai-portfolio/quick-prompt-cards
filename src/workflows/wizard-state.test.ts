@@ -350,6 +350,27 @@ describe("wizard-state persistence: storage fallback", () => {
     expect(resumed.storageAvailable).toBe(false);
   });
 
+  it("reports unavailable immediately when the backing store is readable but write-protected", () => {
+    const readOnlyBacking = {
+      getItem: () => null,
+      setItem: () => {
+        throw new DOMException("QuotaExceededError", "QuotaExceededError");
+      },
+      removeItem: () => {},
+    } as unknown as Storage;
+    const storage = createAutomationStorage(readOnlyBacking);
+
+    expect(storage.isAvailable).toBe(false);
+  });
+
+  it("does not touch the real automation-state key while probing write availability", () => {
+    const backing = window.localStorage;
+    backing.clear();
+    createAutomationStorage(backing);
+    expect(backing.getItem(storageKeyFor(definition.id))).toBeNull();
+    expect(backing.length).toBe(0);
+  });
+
   it("reports storageAvailable true when the backing store works normally", () => {
     const storage = createAutomationStorage();
     const result = saveWizardState(

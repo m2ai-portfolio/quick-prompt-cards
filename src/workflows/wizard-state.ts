@@ -12,6 +12,8 @@ export function storageKeyFor(workflowId: string): string {
   return `prompt-pocket:automation-state:v1:${workflowId}`;
 }
 
+const WRITE_PROBE_KEY = "prompt-pocket:automation-state:v1:__write-probe__";
+
 export function createWizardState(definition: WorkflowDefinition): WizardState {
   return {
     workflowId: definition.id,
@@ -131,6 +133,21 @@ export function createAutomationStorage(backing?: Storage): AutomationStorage {
     // fallback-to-memory guard as every other storage operation below.
     try {
       resolvedBacking = window.localStorage;
+    } catch {
+      available = false;
+    }
+  }
+
+  // A backing store can be readable (getItem succeeds) while still throwing
+  // on write (quota-exhausted or write-restricted storage). Without this
+  // probe, isAvailable stays true until the first real save, so the
+  // persistence-loss warning only appears after the user has already typed
+  // an answer. Probe using a dedicated key, never the caller's real data, so
+  // this can never overwrite or observe actual wizard state.
+  if (available && resolvedBacking) {
+    try {
+      resolvedBacking.setItem(WRITE_PROBE_KEY, "1");
+      resolvedBacking.removeItem(WRITE_PROBE_KEY);
     } catch {
       available = false;
     }
