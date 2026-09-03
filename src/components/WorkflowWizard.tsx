@@ -3,7 +3,7 @@ import { X } from "lucide-react";
 import type { WorkflowDefinition } from "../workflows/types";
 import {
   clearWizardState,
-  createWizardState,
+  createAutomationStorage,
   goBack,
   goNext,
   isLastStep,
@@ -23,8 +23,12 @@ export default function WorkflowWizard({
   onClose,
   onComplete,
 }: WorkflowWizardProps) {
-  const [state, setState] = useState(
-    () => loadWizardState(definition) ?? createWizardState(definition),
+  const [storage] = useState(() => createAutomationStorage());
+  const [initialLoad] = useState(() => loadWizardState(definition, storage));
+  const [state, setState] = useState(initialLoad.state);
+  const [showResetNotice] = useState(initialLoad.outcome === "reset");
+  const [storageAvailable, setStorageAvailable] = useState(
+    initialLoad.storageAvailable,
   );
   const headingRef = useRef<HTMLHeadingElement>(null);
   const dialogRef = useRef<HTMLElement>(null);
@@ -98,7 +102,7 @@ export default function WorkflowWizard({
   const handleAnswerChange = (key: string, value: string) => {
     setState((current) => {
       const next = updateAnswer(current, key, value);
-      saveWizardState(next);
+      setStorageAvailable(saveWizardState(next, definition, storage));
       return next;
     });
   };
@@ -107,11 +111,12 @@ export default function WorkflowWizard({
     setState((current) => {
       const next = goNext(current, definition);
       if (Object.keys(next.errors).length === 0) {
-        saveWizardState(next);
         if (isLastStep(current, definition)) {
-          clearWizardState(definition.id);
+          setStorageAvailable(clearWizardState(definition.id, storage));
           onComplete?.();
+          return next;
         }
+        setStorageAvailable(saveWizardState(next, definition, storage));
       }
       return next;
     });
@@ -120,13 +125,13 @@ export default function WorkflowWizard({
   const handleBack = () => {
     setState((current) => {
       const next = goBack(current);
-      saveWizardState(next);
+      setStorageAvailable(saveWizardState(next, definition, storage));
       return next;
     });
   };
 
   const handleClose = () => {
-    saveWizardState(state);
+    setStorageAvailable(saveWizardState(state, definition, storage));
     onClose();
   };
 
@@ -158,6 +163,19 @@ export default function WorkflowWizard({
             <X size={22} />
           </button>
         </div>
+
+        {showResetNotice && (
+          <p role="status" className="wizard-notice wizard-reset-notice">
+            We couldn&apos;t resume your previous progress, so this workflow has
+            started fresh.
+          </p>
+        )}
+        {!storageAvailable && (
+          <p role="status" className="wizard-notice wizard-storage-warning">
+            Your progress can&apos;t be saved right now, so it will be lost if
+            you reload or close this tab.
+          </p>
+        )}
 
         <h3 ref={headingRef} tabIndex={-1} className="wizard-step-title">
           {step.title}

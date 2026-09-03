@@ -31,14 +31,29 @@ export type WorkflowDefinition = {
 
 export type WizardAnswers = Record<string, string>;
 
-export const WIZARD_STATE_VERSION = 1;
+export const AUTOMATION_STATE_CONTRACT = "automation-state/v1" as const;
 
-export type PersistedWizardStateV1 = {
-  version: typeof WIZARD_STATE_VERSION;
+export type WizardStatus =
+  "draft" | "review" | "submitted" | "completed" | "blocked";
+
+export const WIZARD_STATUSES: readonly WizardStatus[] = [
+  "draft",
+  "review",
+  "submitted",
+  "completed",
+  "blocked",
+];
+
+// Frozen contract (contracts/automation-state-v1.md). Every field is required
+// and validated as a whole object: partial-field salvage is never attempted.
+export type AutomationStateV1 = {
+  contract: typeof AUTOMATION_STATE_CONTRACT;
   workflowId: string;
   schemaVersion: string;
-  stepIndex: number;
+  currentStageId: string;
+  status: WizardStatus;
   answers: WizardAnswers;
+  completedStageIds: string[];
   updatedAt: string;
 };
 
@@ -46,6 +61,12 @@ export type WizardState = {
   workflowId: string;
   schemaVersion: string;
   stepIndex: number;
+  status: WizardStatus;
   answers: WizardAnswers;
+  completedStageIds: string[];
   errors: Record<string, string>;
 };
+
+// resumed: valid matching state found; fresh: nothing stored; reset: stored
+// state failed contract validation and was discarded (contract "outcomes" table).
+export type WizardLoadOutcome = "resumed" | "fresh" | "reset";

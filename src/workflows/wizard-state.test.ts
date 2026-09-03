@@ -1,13 +1,14 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import {
+  clearWizardState,
+  createAutomationStorage,
   createWizardState,
   goBack,
   goNext,
-  updateAnswer,
-  clearWizardState,
   loadWizardState,
   saveWizardState,
   storageKeyFor,
+  updateAnswer,
 } from "./wizard-state";
 import type { WorkflowDefinition } from "./types";
 
@@ -29,6 +30,20 @@ const definition: WorkflowDefinition = {
   ],
 };
 
+function validStoredState(overrides: Record<string, unknown> = {}) {
+  return {
+    contract: "automation-state/v1",
+    workflowId: definition.id,
+    schemaVersion: definition.schemaVersion,
+    currentStageId: "step-two",
+    status: "draft",
+    answers: { name: "Acme" },
+    completedStageIds: ["step-one"],
+    updatedAt: "2026-09-03T04:00:00.000Z",
+    ...overrides,
+  };
+}
+
 describe("wizard-state navigation", () => {
   it("starts at the first step", () => {
     const state = createWizardState(definition);
@@ -43,6 +58,15 @@ describe("wizard-state navigation", () => {
     };
     const next = goNext(withAnswer, definition);
     expect(next.stepIndex).toBe(1);
+  });
+
+  it("records the completed step id when advancing", () => {
+    const state = {
+      ...createWizardState(definition),
+      answers: { name: "Acme" },
+    };
+    const next = goNext(state, definition);
+    expect(next.completedStageIds).toEqual(["step-one"]);
   });
 
   it("does not advance past the last step", () => {
@@ -91,98 +115,205 @@ describe("wizard-state validation", () => {
   });
 });
 
-describe("wizard-state persistence", () => {
+describe("wizard-state persistence: automation-state/v1 contract", () => {
   beforeEach(() => {
     window.localStorage.clear();
   });
 
-  it("returns null when nothing is stored", () => {
-    expect(loadWizardState(definition)).toBeNull();
+  it("uses the namespaced automation-state/v1 storage key", () => {
+    expect(storageKeyFor("example")).toBe(
+      "prompt-pocket:automation-state:v1:example",
+    );
   });
 
-  it("saves and resumes the step index and answers", () => {
+  it("reports fresh when nothing is stored", () => {
+    const storage = createAutomationStorage();
+    const result = loadWizardState(definition, storage);
+    expect(result.outcome).toBe("fresh");
+    expect(result.state.stepIndex).toBe(0);
+  });
+
+  it("writes the frozen contract shape and resumes a valid contract-shaped record", () => {
+    const storage = createAutomationStorage();
     const state = updateAnswer(
       { ...createWizardState(definition), stepIndex: 1 },
       "detail",
       "hello",
     );
-    saveWizardState(state);
+    saveWizardState(state, definition, storage);
 
-    const resumed = loadWizardState(definition);
-    expect(resumed?.stepIndex).toBe(1);
-    expect(resumed?.answers).toEqual({ detail: "hello" });
+    const raw = window.localStorage.getItem(storageKeyFor(definition.id));
+    const parsed = JSON.parse(raw as string);
+    expect(parsed).toEqual({
+      contract: "automation-state/v1",
+      workflowId: "example",
+      schemaVersion: "1.0",
+      currentStageId: "step-two",
+      status: "draft",
+      answers: { detail: "hello" },
+      completedStageIds: [],
+      updatedAt: expect.any(String),
+    });
+
+    const resumed = loadWizardState(definition, storage);
+    expect(resumed.outcome).toBe("resumed");
+    expect(resumed.state.stepIndex).toBe(1);
+    expect(resumed.state.answers).toEqual({ detail: "hello" });
   });
 
   it("clears persisted state", () => {
-    saveWizardState(createWizardState(definition));
-    clearWizardState(definition.id);
-    expect(loadWizardState(definition)).toBeNull();
+    const storage = createAutomationStorage();
+    saveWizardState(createWizardState(definition), definition, storage);
+    clearWizardState(definition.id, storage);
+    expect(loadWizardState(definition, storage).outcome).toBe("fresh");
   });
 
   it("resets on corrupt JSON instead of throwing", () => {
     window.localStorage.setItem(storageKeyFor(definition.id), "{not json");
-    expect(loadWizardState(definition)).toBeNull();
+    const storage = createAutomationStorage();
+    const result = loadWizardState(definition, storage);
+    expect(result.outcome).toBe("reset");
     expect(
       window.localStorage.getItem(storageKeyFor(definition.id)),
     ).toBeNull();
+  });
+
+  it("resets when the contract tag does not match", () => {
+    window.localStorage.setItem(
+      storageKeyFor(definition.id),
+      JSON.stringify(validStoredState({ contract: "automation-state/v0" })),
+    );
+    const storage = createAutomationStorage();
+    expect(loadWizardState(definition, storage).outcome).toBe("reset");
   });
 
   it("resets when the persisted schema version is incompatible", () => {
-    saveWizardState(createWizardState(definition));
-    const raw = window.localStorage.getItem(storageKeyFor(definition.id));
-    const parsed = JSON.parse(raw as string);
-    parsed.schemaVersion = "2.0";
     window.localStorage.setItem(
       storageKeyFor(definition.id),
-      JSON.stringify(parsed),
+      JSON.stringify(validStoredState({ schemaVersion: "2.0" })),
     );
-
-    expect(loadWizardState(definition)).toBeNull();
-    expect(
-      window.localStorage.getItem(storageKeyFor(definition.id)),
-    ).toBeNull();
+    const storage = createAutomationStorage();
+    expect(loadWizardState(definition, storage).outcome).toBe("reset");
   });
 
-  it("resets when the persisted step index is out of range", () => {
-    saveWizardState(createWizardState(definition));
-    const raw = window.localStorage.getItem(storageKeyFor(definition.id));
-    const parsed = JSON.parse(raw as string);
-    parsed.stepIndex = 99;
+  it("resets when currentStageId is not a declared stage", () => {
     window.localStorage.setItem(
       storageKeyFor(definition.id),
-      JSON.stringify(parsed),
+      JSON.stringify(validStoredState({ currentStageId: "step-nine" })),
     );
+    const storage = createAutomationStorage();
+    expect(loadWizardState(definition, storage).outcome).toBe("reset");
+  });
 
-    expect(loadWizardState(definition)).toBeNull();
+  it("resets when status is not one of the declared enum values", () => {
+    window.localStorage.setItem(
+      storageKeyFor(definition.id),
+      JSON.stringify(validStoredState({ status: "archived" })),
+    );
+    const storage = createAutomationStorage();
+    expect(loadWizardState(definition, storage).outcome).toBe("reset");
   });
 
   it("resets when a persisted answer is not a string", () => {
-    saveWizardState(createWizardState(definition));
-    const raw = window.localStorage.getItem(storageKeyFor(definition.id));
-    const parsed = JSON.parse(raw as string);
-    parsed.answers = { name: 3 };
     window.localStorage.setItem(
       storageKeyFor(definition.id),
-      JSON.stringify(parsed),
+      JSON.stringify(validStoredState({ answers: { name: 3 } })),
     );
-
-    expect(loadWizardState(definition)).toBeNull();
+    const storage = createAutomationStorage();
+    const result = loadWizardState(definition, storage);
+    expect(result.outcome).toBe("reset");
     expect(
       window.localStorage.getItem(storageKeyFor(definition.id)),
     ).toBeNull();
   });
 
-  it("does not throw required-field validation when reloading a corrupt-answer state", () => {
-    saveWizardState(createWizardState(definition));
-    const raw = window.localStorage.getItem(storageKeyFor(definition.id));
-    const parsed = JSON.parse(raw as string);
-    parsed.answers = { name: 3 };
+  it("resets when completedStageIds contains a non-string element", () => {
     window.localStorage.setItem(
       storageKeyFor(definition.id),
-      JSON.stringify(parsed),
+      JSON.stringify(validStoredState({ completedStageIds: ["step-one", 2] })),
     );
+    const storage = createAutomationStorage();
+    expect(loadWizardState(definition, storage).outcome).toBe("reset");
+  });
 
-    const state = loadWizardState(definition) ?? createWizardState(definition);
+  it("resets when updatedAt is not a canonical ISO 8601 timestamp", () => {
+    window.localStorage.setItem(
+      storageKeyFor(definition.id),
+      JSON.stringify(
+        validStoredState({ updatedAt: "2026-09-03T04:00:00+00:00" }),
+      ),
+    );
+    const storage = createAutomationStorage();
+    expect(loadWizardState(definition, storage).outcome).toBe("reset");
+  });
+
+  it("resets when updatedAt is not a valid date at all", () => {
+    window.localStorage.setItem(
+      storageKeyFor(definition.id),
+      JSON.stringify(validStoredState({ updatedAt: "not-a-date" })),
+    );
+    const storage = createAutomationStorage();
+    expect(loadWizardState(definition, storage).outcome).toBe("reset");
+  });
+
+  it("does not throw required-field validation when reloading a corrupt-answer state", () => {
+    window.localStorage.setItem(
+      storageKeyFor(definition.id),
+      JSON.stringify(validStoredState({ answers: { name: 3 } })),
+    );
+    const storage = createAutomationStorage();
+    const { state } = loadWizardState(definition, storage);
     expect(() => goNext(state, definition)).not.toThrow();
+  });
+});
+
+describe("wizard-state persistence: storage fallback", () => {
+  it("falls back to in-memory storage when the backing store throws on read", () => {
+    const throwingBacking = {
+      getItem: () => {
+        throw new Error("SecurityError");
+      },
+      setItem: () => {},
+      removeItem: () => {},
+    } as unknown as Storage;
+    const storage = createAutomationStorage(throwingBacking);
+
+    const result = loadWizardState(definition, storage);
+    expect(result.outcome).toBe("fresh");
+    expect(result.storageAvailable).toBe(false);
+  });
+
+  it("keeps write/read continuity in memory for the session once storage throws", () => {
+    const throwingBacking = {
+      getItem: () => {
+        throw new Error("unavailable");
+      },
+      setItem: () => {
+        throw new Error("unavailable");
+      },
+      removeItem: () => {
+        throw new Error("unavailable");
+      },
+    } as unknown as Storage;
+    const storage = createAutomationStorage(throwingBacking);
+
+    const state = updateAnswer(createWizardState(definition), "name", "Acme");
+    const availableAfterSave = saveWizardState(state, definition, storage);
+    expect(availableAfterSave).toBe(false);
+
+    const resumed = loadWizardState(definition, storage);
+    expect(resumed.outcome).toBe("resumed");
+    expect(resumed.state.answers).toEqual({ name: "Acme" });
+    expect(resumed.storageAvailable).toBe(false);
+  });
+
+  it("reports storageAvailable true when the backing store works normally", () => {
+    const storage = createAutomationStorage();
+    const result = saveWizardState(
+      createWizardState(definition),
+      definition,
+      storage,
+    );
+    expect(result).toBe(true);
   });
 });

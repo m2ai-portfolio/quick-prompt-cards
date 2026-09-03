@@ -1,6 +1,6 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import WorkflowWizard from "./WorkflowWizard";
 import { storageKeyFor } from "../workflows/wizard-state";
 import type { WorkflowDefinition } from "../workflows/types";
@@ -23,8 +23,26 @@ const definition: WorkflowDefinition = {
   ],
 };
 
+function validStoredState(overrides: Record<string, unknown> = {}) {
+  return {
+    contract: "automation-state/v1",
+    workflowId: definition.id,
+    schemaVersion: definition.schemaVersion,
+    currentStageId: "step-two",
+    status: "draft",
+    answers: {},
+    completedStageIds: ["step-one"],
+    updatedAt: "2026-09-03T04:00:00.000Z",
+    ...overrides,
+  };
+}
+
 beforeEach(() => {
   window.localStorage.clear();
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
 });
 
 describe("WorkflowWizard", () => {
@@ -84,7 +102,7 @@ describe("WorkflowWizard", () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
-  it("saves progress locally and resumes on remount", async () => {
+  it("saves progress locally in the automation-state/v1 contract shape and resumes on remount", async () => {
     const user = userEvent.setup();
     const { unmount } = render(
       <WorkflowWizard definition={definition} onClose={vi.fn()} />,
@@ -98,6 +116,18 @@ describe("WorkflowWizard", () => {
         window.localStorage.getItem(storageKeyFor(definition.id)),
       ).not.toBeNull(),
     );
+    const raw = window.localStorage.getItem(storageKeyFor(definition.id));
+    const parsed = JSON.parse(raw as string);
+    expect(parsed).toMatchObject({
+      contract: "automation-state/v1",
+      workflowId: "example",
+      schemaVersion: "1.0",
+      currentStageId: "step-two",
+      status: "draft",
+      answers: { name: "Acme" },
+      completedStageIds: ["step-one"],
+    });
+
     unmount();
 
     render(<WorkflowWizard definition={definition} onClose={vi.fn()} />);
@@ -106,7 +136,7 @@ describe("WorkflowWizard", () => {
     ).toBeInTheDocument();
   });
 
-  it("resets to a fresh wizard when persisted state is corrupt", () => {
+  it("resets to a fresh wizard and shows a recovery notice when persisted state is corrupt JSON", () => {
     window.localStorage.setItem(storageKeyFor(definition.id), "{not json");
 
     render(<WorkflowWizard definition={definition} onClose={vi.fn()} />);
@@ -114,6 +144,72 @@ describe("WorkflowWizard", () => {
     expect(
       screen.getByRole("heading", { name: "Step one" }),
     ).toBeInTheDocument();
+    expect(
+      screen.getByText(/couldn.t resume your previous progress/i),
+    ).toBeInTheDocument();
+  });
+
+  it("resets and shows the recovery notice when persisted state does not match the frozen contract", () => {
+    window.localStorage.setItem(
+      storageKeyFor(definition.id),
+      JSON.stringify(validStoredState({ currentStageId: "unknown-stage" })),
+    );
+
+    render(<WorkflowWizard definition={definition} onClose={vi.fn()} />);
+
+    expect(
+      screen.getByRole("heading", { name: "Step one" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/couldn.t resume your previous progress/i),
+    ).toBeInTheDocument();
+  });
+
+  it("resumes silently, without the recovery notice, when persisted state matches the frozen contract", () => {
+    window.localStorage.setItem(
+      storageKeyFor(definition.id),
+      JSON.stringify(validStoredState()),
+    );
+
+    render(<WorkflowWizard definition={definition} onClose={vi.fn()} />);
+
+    expect(
+      screen.getByRole("heading", { name: "Step two" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText(/couldn.t resume your previous progress/i),
+    ).not.toBeInTheDocument();
+  });
+
+  it("shows an upfront persistence warning and keeps working when storage throws", async () => {
+    vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
+      throw new Error("SecurityError");
+    });
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new Error("SecurityError");
+    });
+
+    const user = userEvent.setup();
+    render(<WorkflowWizard definition={definition} onClose={vi.fn()} />);
+
+    expect(
+      screen.getByText(/progress can.t be saved right now/i),
+    ).toBeInTheDocument();
+
+    await user.type(screen.getByLabelText("Name"), "Acme");
+    await user.click(screen.getByRole("button", { name: "Next" }));
+
+    expect(
+      screen.getByRole("heading", { name: "Step two" }),
+    ).toBeInTheDocument();
+  });
+
+  it("does not show the persistence warning when storage works normally", () => {
+    render(<WorkflowWizard definition={definition} onClose={vi.fn()} />);
+
+    expect(
+      screen.queryByText(/progress can.t be saved right now/i),
+    ).not.toBeInTheDocument();
   });
 
   it("moves focus to the new step heading instead of an input after navigating", async () => {
