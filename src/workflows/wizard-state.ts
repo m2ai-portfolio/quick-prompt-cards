@@ -12,7 +12,15 @@ export function storageKeyFor(workflowId: string): string {
   return `prompt-pocket:automation-state:v1:${workflowId}`;
 }
 
-const WRITE_PROBE_KEY = "prompt-pocket:automation-state:v1:__write-probe__";
+// Deliberately outside the `prompt-pocket:automation-state:v1:<workflowId>`
+// namespace (storageKeyFor's output space) so the probe can never collide
+// with a real workflow record, no matter what a workflow is named.
+const WRITE_PROBE_PREFIX = "prompt-pocket:__storage-probe__:";
+const WRITE_PROBE_MAX_ATTEMPTS = 3;
+
+function randomProbeSuffix(): string {
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+}
 
 export function createWizardState(definition: WorkflowDefinition): WizardState {
   return {
@@ -142,38 +150,66 @@ export function createAutomationStorage(backing?: Storage): AutomationStorage {
   // on write (quota-exhausted or write-restricted storage). Without this
   // probe, isAvailable stays true until the first real save, so the
   // persistence-loss warning only appears after the user has already typed
-  // an answer. The probe key is a valid workflow storage key (a workflow
-  // could legitimately be named "__write-probe__"), so this must never
-  // destroy or clobber a real record living there: read whatever occupies
-  // the key first and restore it on every recoverable path. If cleanup
-  // can't be guaranteed (write succeeds but removal/restore throws), fail
-  // closed to memory rather than risk leaving corrupted residue behind.
+  // an answer. The probe key lives outside the workflow-state namespace, so
+  // it can never collide with (and therefore never needs to overwrite or
+  // restore) a real workflow record. It still verifies the key is absent
+  // before writing and retries under a fresh key on the astronomically
+  // unlikely chance of a collision; any read/write/cleanup uncertainty,
+  // including running out of retries, fails closed to memory.
   if (available && resolvedBacking) {
-    let existing: string | null = null;
-    try {
-      existing = resolvedBacking.getItem(WRITE_PROBE_KEY);
-    } catch {
-      available = false;
-    }
+    const backing = resolvedBacking;
+    let probeSucceeded = false;
 
-    if (available) {
+    for (
+      let attempt = 0;
+      available && !probeSucceeded && attempt < WRITE_PROBE_MAX_ATTEMPTS;
+      attempt++
+    ) {
+      const probeKey = `${WRITE_PROBE_PREFIX}${randomProbeSuffix()}`;
+
+      let existing: string | null;
       try {
-        resolvedBacking.setItem(WRITE_PROBE_KEY, "1");
+        existing = backing.getItem(probeKey);
       } catch {
         available = false;
+        break;
       }
-    }
 
-    if (available) {
+      if (existing !== null) {
+        // Key already occupied: abstain from touching it, retry with a
+        // fresh opaque key instead.
+        continue;
+      }
+
       try {
-        if (existing === null) {
-          resolvedBacking.removeItem(WRITE_PROBE_KEY);
-        } else {
-          resolvedBacking.setItem(WRITE_PROBE_KEY, existing);
+        backing.setItem(probeKey, "1");
+      } catch {
+        available = false;
+        break;
+      }
+
+      try {
+        backing.removeItem(probeKey);
+      } catch {
+        available = false;
+        break;
+      }
+
+      try {
+        if (backing.getItem(probeKey) !== null) {
+          available = false;
+          break;
         }
       } catch {
         available = false;
+        break;
       }
+
+      probeSucceeded = true;
+    }
+
+    if (available && !probeSucceeded) {
+      available = false;
     }
   }
 

@@ -351,16 +351,20 @@ describe("wizard-state persistence: storage fallback", () => {
   });
 
   it("reports unavailable immediately when the backing store is readable but write-protected", () => {
+    const store = new Map<string, string>();
     const readOnlyBacking = {
-      getItem: () => null,
+      getItem: (key: string) => store.get(key) ?? null,
       setItem: () => {
         throw new DOMException("QuotaExceededError", "QuotaExceededError");
       },
-      removeItem: () => {},
+      removeItem: (key: string) => {
+        store.delete(key);
+      },
     } as unknown as Storage;
     const storage = createAutomationStorage(readOnlyBacking);
 
     expect(storage.isAvailable).toBe(false);
+    expect(store.size).toBe(0);
   });
 
   it("does not touch the real automation-state key while probing write availability", () => {
@@ -393,6 +397,38 @@ describe("wizard-state persistence: storage fallback", () => {
     );
   });
 
+  it("never overwrites an existing colliding record even when a probe write succeeds and its restore throws", () => {
+    const collidingKey = storageKeyFor("__write-probe__");
+    const stored = validStoredState({ workflowId: "__write-probe__" });
+    const store = new Map<string, string>([
+      [collidingKey, JSON.stringify(stored)],
+    ]);
+    let writesToCollidingKey = 0;
+    const backing = {
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: (key: string, value: string) => {
+        if (key === collidingKey) {
+          writesToCollidingKey += 1;
+          if (writesToCollidingKey === 1) {
+            // Simulates the old implementation's probe overwrite succeeding.
+            store.set(key, value);
+            return;
+          }
+          // Simulates the old implementation's restore-of-prior-value throwing.
+          throw new Error("restore blocked");
+        }
+        store.set(key, value);
+      },
+      removeItem: (key: string) => {
+        store.delete(key);
+      },
+    } as unknown as Storage;
+
+    createAutomationStorage(backing);
+
+    expect(store.get(collidingKey)).toBe(JSON.stringify(stored));
+  });
+
   it("fails closed to memory when the probe write succeeds but removing it throws", () => {
     const store = new Map<string, string>();
     const backing = {
@@ -408,6 +444,11 @@ describe("wizard-state persistence: storage fallback", () => {
     const storage = createAutomationStorage(backing);
 
     expect(storage.isAvailable).toBe(false);
+    // Cleanup failure may leave an isolated probe artifact behind, but it
+    // must never leak into (or collide with) the workflow-state namespace.
+    for (const key of store.keys()) {
+      expect(key.startsWith("prompt-pocket:automation-state:v1:")).toBe(false);
+    }
   });
 
   it("falls back to in-memory storage when window.localStorage itself throws on access", () => {
