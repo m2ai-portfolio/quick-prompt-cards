@@ -29,7 +29,9 @@ export type WorkflowDefinition = {
   steps: WorkflowStep[];
 };
 
-export type WizardAnswers = Record<string, string>;
+// Workflow-owned shape (contract rule 5): the generic engine only checks
+// that this is a plain object container, never the shape of its values.
+export type WizardAnswers = Record<string, unknown>;
 
 export const AUTOMATION_STATE_CONTRACT = "automation-state/v1" as const;
 
@@ -43,6 +45,12 @@ export const WIZARD_STATUSES: readonly WizardStatus[] = [
   "completed",
   "blocked",
 ];
+
+// A submitted/completed record is terminal: the contract's single-use/retry
+// boundary forbids silently reopening it as an editable draft.
+export function isTerminalStatus(status: WizardStatus): boolean {
+  return status === "submitted" || status === "completed";
+}
 
 // Frozen contract (contracts/automation-state-v1.md). Every field is required
 // and validated as a whole object: partial-field salvage is never attempted.

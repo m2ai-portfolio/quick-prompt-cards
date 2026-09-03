@@ -214,17 +214,31 @@ describe("wizard-state persistence: automation-state/v1 contract", () => {
     expect(loadWizardState(definition, storage).outcome).toBe("reset");
   });
 
-  it("resets when a persisted answer is not a string", () => {
+  it("preserves workflow-owned answer values that are not strings", () => {
     window.localStorage.setItem(
       storageKeyFor(definition.id),
-      JSON.stringify(validStoredState({ answers: { name: 3 } })),
+      JSON.stringify(
+        validStoredState({
+          answers: { employeeCount: 12, selectedTools: ["CRM"] },
+        }),
+      ),
     );
     const storage = createAutomationStorage();
     const result = loadWizardState(definition, storage);
-    expect(result.outcome).toBe("reset");
-    expect(
-      window.localStorage.getItem(storageKeyFor(definition.id)),
-    ).toBeNull();
+    expect(result.outcome).toBe("resumed");
+    expect(result.state.answers).toEqual({
+      employeeCount: 12,
+      selectedTools: ["CRM"],
+    });
+  });
+
+  it("resets when answers is not a plain object", () => {
+    window.localStorage.setItem(
+      storageKeyFor(definition.id),
+      JSON.stringify(validStoredState({ answers: ["not", "an", "object"] })),
+    );
+    const storage = createAutomationStorage();
+    expect(loadWizardState(definition, storage).outcome).toBe("reset");
   });
 
   it("resets when completedStageIds contains a non-string element", () => {
@@ -256,14 +270,43 @@ describe("wizard-state persistence: automation-state/v1 contract", () => {
     expect(loadWizardState(definition, storage).outcome).toBe("reset");
   });
 
-  it("does not throw required-field validation when reloading a corrupt-answer state", () => {
+  it("does not throw required-field validation when a workflow-owned answer is not a string", () => {
     window.localStorage.setItem(
       storageKeyFor(definition.id),
       JSON.stringify(validStoredState({ answers: { name: 3 } })),
     );
     const storage = createAutomationStorage();
-    const { state } = loadWizardState(definition, storage);
+    const { state, outcome } = loadWizardState(definition, storage);
+    expect(outcome).toBe("resumed");
     expect(() => goNext(state, definition)).not.toThrow();
+  });
+});
+
+describe("wizard-state terminal status", () => {
+  it("does not modify answers once status is submitted", () => {
+    const state = {
+      ...createWizardState(definition),
+      status: "submitted" as const,
+      answers: { name: "Acme" },
+    };
+    const next = updateAnswer(state, "name", "Changed");
+    expect(next.answers).toEqual({ name: "Acme" });
+  });
+
+  it("does not modify answers once status is completed", () => {
+    const state = {
+      ...createWizardState(definition),
+      status: "completed" as const,
+      answers: { name: "Acme" },
+    };
+    const next = updateAnswer(state, "name", "Changed");
+    expect(next.answers).toEqual({ name: "Acme" });
+  });
+
+  it("still allows edits while status is draft", () => {
+    const state = createWizardState(definition);
+    const next = updateAnswer(state, "name", "Acme");
+    expect(next.answers).toEqual({ name: "Acme" });
   });
 });
 

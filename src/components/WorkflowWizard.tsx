@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { X } from "lucide-react";
-import type { WorkflowDefinition } from "../workflows/types";
+import { isTerminalStatus, type WorkflowDefinition } from "../workflows/types";
 import {
   clearWizardState,
   createAutomationStorage,
@@ -40,6 +40,7 @@ export default function WorkflowWizard({
 
   const step = definition.steps[state.stepIndex];
   const isLast = isLastStep(state, definition);
+  const isTerminal = isTerminalStatus(state.status);
 
   useEffect(() => {
     if (isFirstRender.current) {
@@ -100,6 +101,7 @@ export default function WorkflowWizard({
   }, [onClose]);
 
   const handleAnswerChange = (key: string, value: string) => {
+    if (isTerminal) return;
     setState((current) => {
       const next = updateAnswer(current, key, value);
       setStorageAvailable(saveWizardState(next, definition, storage));
@@ -176,6 +178,12 @@ export default function WorkflowWizard({
             you reload or close this tab.
           </p>
         )}
+        {isTerminal && (
+          <p role="status" className="wizard-notice wizard-terminal-notice">
+            This workflow has already been {state.status} and can no longer be
+            edited.
+          </p>
+        )}
 
         <h3 ref={headingRef} tabIndex={-1} className="wizard-step-title">
           {step.title}
@@ -188,14 +196,22 @@ export default function WorkflowWizard({
           {step.fields.map((field) => {
             const errorId = `${field.key}-error`;
             const error = state.errors[field.key];
-            const value = state.answers[field.key] ?? "";
+            const rawValue = state.answers[field.key];
+            const value =
+              typeof rawValue === "string"
+                ? rawValue
+                : (rawValue?.toString() ?? "");
             const commonProps = {
               "aria-invalid": error ? ("true" as const) : undefined,
               "aria-describedby": error ? errorId : undefined,
             };
 
             let control: ReactNode;
-            if (field.type === "select") {
+            if (isTerminal) {
+              control = (
+                <span className="wizard-field-value">{value || "—"}</span>
+              );
+            } else if (field.type === "select") {
               control = (
                 <select
                   value={value}
@@ -254,18 +270,20 @@ export default function WorkflowWizard({
           })}
         </div>
 
-        <div className="wizard-actions">
-          <button
-            type="button"
-            onClick={handleBack}
-            disabled={state.stepIndex === 0}
-          >
-            Back
-          </button>
-          <button type="button" onClick={handleNext}>
-            {isLast ? "Finish" : "Next"}
-          </button>
-        </div>
+        {!isTerminal && (
+          <div className="wizard-actions">
+            <button
+              type="button"
+              onClick={handleBack}
+              disabled={state.stepIndex === 0}
+            >
+              Back
+            </button>
+            <button type="button" onClick={handleNext}>
+              {isLast ? "Finish" : "Next"}
+            </button>
+          </div>
+        )}
       </section>
     </div>
   );

@@ -281,6 +281,60 @@ describe("WorkflowWizard", () => {
     expect(closeButton).toHaveFocus();
   });
 
+  it("renders a submitted workflow as read-only instead of an editable draft", () => {
+    window.localStorage.setItem(
+      storageKeyFor(definition.id),
+      JSON.stringify(
+        validStoredState({
+          status: "submitted",
+          currentStageId: "step-one",
+          answers: { name: "Acme" },
+        }),
+      ),
+    );
+
+    render(<WorkflowWizard definition={definition} onClose={vi.fn()} />);
+
+    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+    expect(screen.getByText("Acme")).toBeInTheDocument();
+    expect(screen.getByText(/already been submitted/i)).toBeInTheDocument();
+  });
+
+  it("does not render Next/Back controls for a completed workflow", () => {
+    window.localStorage.setItem(
+      storageKeyFor(definition.id),
+      JSON.stringify(
+        validStoredState({ status: "completed", currentStageId: "step-one" }),
+      ),
+    );
+
+    render(<WorkflowWizard definition={definition} onClose={vi.fn()} />);
+
+    expect(
+      screen.queryByRole("button", { name: "Next" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Back" }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByText(/already been completed/i)).toBeInTheDocument();
+  });
+
+  it("does not overwrite the persisted terminal record when reopened", () => {
+    const stored = validStoredState({
+      status: "submitted",
+      currentStageId: "step-one",
+      answers: { name: "Acme" },
+    });
+    const key = storageKeyFor(definition.id);
+    window.localStorage.setItem(key, JSON.stringify(stored));
+
+    render(<WorkflowWizard definition={definition} onClose={vi.fn()} />);
+
+    expect(JSON.parse(window.localStorage.getItem(key) as string)).toEqual(
+      stored,
+    );
+  });
+
   it("restores focus to the previously focused element on unmount", async () => {
     const opener = document.createElement("button");
     opener.textContent = "Open";

@@ -1,6 +1,7 @@
 import {
   AUTOMATION_STATE_CONTRACT,
   WIZARD_STATUSES,
+  isTerminalStatus,
   type AutomationStateV1,
   type WizardLoadOutcome,
   type WizardState,
@@ -32,7 +33,9 @@ export function validateStep(
 
   const errors: Record<string, string> = {};
   for (const field of step.fields) {
-    if (field.required && !state.answers[field.key]?.trim()) {
+    const raw = state.answers[field.key];
+    const value = typeof raw === "string" ? raw : "";
+    if (field.required && !value.trim()) {
       errors[field.key] = `${field.label} is required.`;
     }
   }
@@ -71,6 +74,10 @@ export function updateAnswer(
   key: string,
   value: string,
 ): WizardState {
+  // Terminal records (contract's single-use/retry boundary) are never
+  // mutated in place; the caller must restart the workflow to get a fresh,
+  // editable state object instead.
+  if (isTerminalStatus(state.status)) return state;
   return {
     ...state,
     answers: { ...state.answers, [key]: value },
@@ -191,13 +198,11 @@ function isValidStatus(value: unknown): value is AutomationStateV1["status"] {
   );
 }
 
-function isValidAnswers(value: unknown): value is Record<string, string> {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return false;
-  }
-  return Object.values(value as Record<string, unknown>).every(
-    (answer) => typeof answer === "string",
-  );
+// Contract rule 5: answers is workflow-owned. The generic engine validates
+// only that the container itself is a plain object, never its contents, so
+// valid non-string values (numbers, arrays, nested objects) are preserved.
+function isValidAnswers(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
 function isValidCompletedStageIds(value: unknown): value is string[] {
