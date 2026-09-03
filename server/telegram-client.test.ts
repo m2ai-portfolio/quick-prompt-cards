@@ -33,8 +33,8 @@ function telegramOkResponse(): Response {
 
 describe("answerWebAppQuery", () => {
   it("returns posted on a successful call", async () => {
-    const fetchImpl: FetchLike = vi.fn(
-      async () => telegramOkResponse(),
+    const fetchImpl: FetchLike = vi.fn(async () =>
+      telegramOkResponse(),
     ) as unknown as FetchLike;
 
     const result = await answerWebAppQuery(baseParams, fetchImpl);
