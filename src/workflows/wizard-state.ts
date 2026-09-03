@@ -49,6 +49,9 @@ export function validateStep(
       errors[field.key] = `${field.label} is required.`;
     }
   }
+  const mode =
+    state.stepIndex === definition.steps.length - 1 ? "completion" : "draft";
+  Object.assign(errors, definition.validateAnswers?.(state.answers, mode));
   return errors;
 }
 
@@ -314,6 +317,16 @@ function isAutomationStateV1(
   }
   if (!isValidStatus(candidate.status)) return false;
   if (!isValidAnswers(candidate.answers)) return false;
+  const validationMode = isTerminalStatus(candidate.status)
+    ? "completion"
+    : "draft";
+  if (
+    Object.keys(
+      definition.validateAnswers?.(candidate.answers, validationMode) ?? {},
+    ).length > 0
+  ) {
+    return false;
+  }
   if (!isValidCompletedStageIds(candidate.completedStageIds)) return false;
   if (!isValidTimestamp(candidate.updatedAt)) return false;
 

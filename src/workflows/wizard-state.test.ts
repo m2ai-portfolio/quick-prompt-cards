@@ -113,6 +113,29 @@ describe("wizard-state validation", () => {
     expect(next.stepIndex).toBe(1);
     expect(next.errors).toEqual({});
   });
+
+  it("uses workflow-owned runtime validation before completion", () => {
+    const validatedDefinition = {
+      ...definition,
+      steps: [definition.steps[0]],
+      validateAnswers: (answers: Record<string, unknown>) =>
+        answers.name === "Acme" ? {} : { name: "Unsupported workflow answer." },
+    } as WorkflowDefinition & {
+      validateAnswers: (
+        answers: Record<string, unknown>,
+        mode: "draft" | "completion",
+      ) => Record<string, string>;
+    };
+    const state = {
+      ...createWizardState(validatedDefinition),
+      answers: { name: "tampered" },
+    };
+
+    const next = goNext(state, validatedDefinition);
+
+    expect(next.errors.name).toBe("Unsupported workflow answer.");
+    expect(next.completedStageIds).toEqual([]);
+  });
 });
 
 describe("wizard-state persistence: automation-state/v1 contract", () => {
@@ -194,6 +217,31 @@ describe("wizard-state persistence: automation-state/v1 contract", () => {
     );
     const storage = createAutomationStorage();
     expect(loadWizardState(definition, storage).outcome).toBe("reset");
+  });
+
+  it("resets when workflow-owned runtime validation rejects persisted answers", () => {
+    const validatedDefinition = {
+      ...definition,
+      validateAnswers: (answers: Record<string, unknown>) =>
+        answers.name === "Acme" ? {} : { name: "Unsupported workflow answer." },
+    } as WorkflowDefinition & {
+      validateAnswers: (
+        answers: Record<string, unknown>,
+        mode: "draft" | "completion",
+      ) => Record<string, string>;
+    };
+    window.localStorage.setItem(
+      storageKeyFor(validatedDefinition.id),
+      JSON.stringify(validStoredState({ answers: { name: "tampered" } })),
+    );
+
+    const result = loadWizardState(
+      validatedDefinition,
+      createAutomationStorage(),
+    );
+
+    expect(result.outcome).toBe("reset");
+    expect(result.state.answers).toEqual({});
   });
 
   it("resets when currentStageId is not a declared stage", () => {

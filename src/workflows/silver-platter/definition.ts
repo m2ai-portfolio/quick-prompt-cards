@@ -95,6 +95,32 @@ export function mapStage2Handoff(
   return { businessDescription, confirmedArchetype };
 }
 
+export function validateSilverPlatterAnswers(
+  answers: Record<string, unknown>,
+  mode: "draft" | "completion",
+): Record<string, string> {
+  const errors: Record<string, string> = {};
+  if (
+    answers.confirmed_archetype !== undefined &&
+    !isSupportedSilverPlatterArchetype(answers.confirmed_archetype)
+  ) {
+    errors.confirmed_archetype = "Choose a supported business type.";
+  }
+
+  if (mode === "completion" && !mapStage2Handoff(answers)) {
+    if (
+      typeof answers.business_description !== "string" ||
+      !answers.business_description.trim()
+    ) {
+      errors.business_description = "Describe your business or work.";
+    }
+    if (!isSupportedSilverPlatterArchetype(answers.confirmed_archetype)) {
+      errors.confirmed_archetype = "Choose a supported business type.";
+    }
+  }
+  return errors;
+}
+
 // This mini-app cannot inspect the operator's local project (no filesystem or
 // skill execution authority in the browser), so it never claims a workspace
 // audit occurred here. That is the canonical skill's `audit-existing` branch,
@@ -108,6 +134,7 @@ export const silverPlatterWorkflow: WorkflowDefinition = {
   id: SILVER_PLATTER_WORKFLOW_ID,
   schemaVersion: SILVER_PLATTER_SCHEMA_VERSION,
   title: "Silver Platter",
+  validateAnswers: validateSilverPlatterAnswers,
   steps: [
     {
       id: SILVER_PLATTER_STEP_IDS.speed,

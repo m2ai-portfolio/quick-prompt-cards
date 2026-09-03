@@ -27,6 +27,10 @@ export type WorkflowDefinition = {
   schemaVersion: string;
   title: string;
   steps: WorkflowStep[];
+  validateAnswers?: (
+    answers: WizardAnswers,
+    mode: "draft" | "completion",
+  ) => Record<string, string>;
 };
 
 // Workflow-owned shape (contract rule 5): the generic engine only checks

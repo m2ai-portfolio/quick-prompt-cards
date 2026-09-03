@@ -150,6 +150,27 @@ describe("silverPlatterWorkflow definition", () => {
     expect(mapStage2Handoff({})).toBeNull();
   });
 
+  it("wires Stage 2 validation into the production workflow runtime", () => {
+    expect(
+      silverPlatterWorkflow.validateAnswers?.(
+        {
+          business_description: "A two-person bakery.",
+          confirmed_archetype: "ecommerce",
+        },
+        "completion",
+      ),
+    ).toEqual({});
+    expect(
+      silverPlatterWorkflow.validateAnswers?.(
+        {
+          business_description: "A two-person bakery.",
+          confirmed_archetype: "not_a_real_archetype",
+        },
+        "completion",
+      ),
+    ).toHaveProperty("confirmed_archetype");
+  });
+
   it("asks the hardest-task question with the canonical wording, not an invented variant", () => {
     const pantryStep = silverPlatterWorkflow.steps.find(
       (step) => step.id === SILVER_PLATTER_STEP_IDS.pantry,
