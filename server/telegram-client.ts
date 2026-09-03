@@ -75,12 +75,13 @@ async function attemptCall(
       },
     );
 
-    if (response.ok) {
+    if (response.ok && (await isTelegramOk(response))) {
       return { outcome: "posted" };
     }
 
-    // A non-2xx proves Telegram's edge received and attempted the request;
-    // it does not prove the query answer did not execute. Ambiguous, terminal.
+    // A non-2xx, or a 2xx body with `ok: false`, proves Telegram's edge
+    // received and attempted the request; it does not prove the query
+    // answer did not execute. Ambiguous, terminal.
     return { outcome: "telegram_error", retryable: false };
   } catch (error) {
     if (isAbortError(error)) {
@@ -93,6 +94,16 @@ async function attemptCall(
     return { outcome: "telegram_error", retryable: false };
   } finally {
     clearTimeout(timer);
+  }
+}
+
+async function isTelegramOk(response: Response): Promise<boolean> {
+  try {
+    const body = (await response.json()) as { ok?: boolean };
+    return body.ok === true;
+  } catch {
+    // A 2xx with an unparseable body never proves success; treat as failed.
+    return false;
   }
 }
 

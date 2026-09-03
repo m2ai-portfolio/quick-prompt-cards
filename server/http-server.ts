@@ -13,23 +13,54 @@ import { QueryClaimStore } from "./query-claim-store.js";
 const MAX_BODY_BYTES = 16 * 1024;
 const REQUEST_READ_TIMEOUT_MS = 10_000;
 const PROMPT_RUN_PATH = "/api/prompt-run";
+const DEFAULT_ALLOWED_ORIGIN = "https://m2ai-portfolio.github.io";
 
 /**
  * Minimal dependency-free HTTP transport for the prompt-run-v1 contract.
  * Bounded body size and read timeout so a slow/oversized request cannot
  * hang a handler; a bad or unparseable payload always returns the same
  * safe rejected shape, never a raw parser error or stack trace.
+ *
+ * The client is a browser page served from a different origin (GitHub
+ * Pages), so the browser sends a CORS preflight (OPTIONS) before the real
+ * POST; without an explicit allow-list response the browser blocks the
+ * request before it ever reaches this handler.
  */
-export function createPromptRunServer(botToken: string): Server {
+export function createPromptRunServer(
+  botToken: string,
+  allowedOrigin: string = DEFAULT_ALLOWED_ORIGIN,
+): Server {
   const claimStore = new QueryClaimStore();
 
   return createServer((req, res) => {
+    applyCorsHeaders(req, res, allowedOrigin);
+
+    if (req.method === "OPTIONS") {
+      res.writeHead(204).end();
+      return;
+    }
+
     if (req.method !== "POST" || req.url !== PROMPT_RUN_PATH) {
       respond(res, 404, { status: "not_found" });
       return;
     }
     void handleRequest(req, res, botToken, claimStore);
   });
+}
+
+function applyCorsHeaders(
+  req: IncomingMessage,
+  res: ServerResponse,
+  allowedOrigin: string,
+): void {
+  const origin = req.headers.origin;
+  if (origin !== allowedOrigin) {
+    return;
+  }
+  res.setHeader("access-control-allow-origin", origin);
+  res.setHeader("access-control-allow-methods", "POST, OPTIONS");
+  res.setHeader("access-control-allow-headers", "content-type");
+  res.setHeader("access-control-max-age", "600");
 }
 
 async function handleRequest(

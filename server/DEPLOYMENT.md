@@ -40,6 +40,14 @@ dependency without reducing code.
   inbound request reads (`server/http-server.ts`), so neither a slow
   Telegram response nor a slow/oversized client request can hang the
   process.
+- **CORS**: the Mini App is served from GitHub Pages, a different origin
+  than this server, so the browser sends a preflight `OPTIONS` request
+  before the real `POST`. `server/http-server.ts` answers the preflight and
+  reflects `access-control-allow-origin` only for the configured origin
+  (default `https://m2ai-portfolio.github.io`, matching the production
+  site in `README.md`; override with `ALLOWED_ORIGIN` for a staging
+  deployment). Any other origin gets no CORS headers and the browser
+  blocks the request client-side.
 
 ## Where it should run (recommendation, not executed by this issue)
 

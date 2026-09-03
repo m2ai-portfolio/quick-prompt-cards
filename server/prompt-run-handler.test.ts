@@ -23,10 +23,14 @@ function validRequest(overrides: Record<string, string> = {}) {
   };
 }
 
+function telegramOkResponse(): Response {
+  return new Response(JSON.stringify({ ok: true, result: true }), {
+    status: 200,
+  });
+}
+
 function successFetch(): FetchLike {
-  return vi.fn(
-    async () => new Response(null, { status: 200 }),
-  ) as unknown as FetchLike;
+  return vi.fn(async () => telegramOkResponse()) as unknown as FetchLike;
 }
 
 function deps(overrides: Partial<Parameters<typeof handlePromptRun>[1]> = {}) {
@@ -44,7 +48,7 @@ describe("handlePromptRun", () => {
     let capturedBody = "";
     const fetchImpl: FetchLike = vi.fn(async (_url, init) => {
       capturedBody = String(init?.body ?? "");
-      return new Response(null, { status: 200 });
+      return telegramOkResponse();
     }) as unknown as FetchLike;
 
     const result = await handlePromptRun(validRequest(), deps({ fetchImpl }));
@@ -123,7 +127,7 @@ describe("handlePromptRun", () => {
       body: { status: "duplicate_in_progress" },
     });
 
-    resolveFirstFetch(new Response(null, { status: 200 }));
+    resolveFirstFetch(telegramOkResponse());
     const firstResult = await firstCall;
     expect(firstResult).toEqual({
       httpStatus: 200,

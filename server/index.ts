@@ -8,7 +8,12 @@ if (!botToken) {
 }
 
 const port = Number.parseInt(process.env.PORT ?? "8787", 10);
+const allowedOrigin = process.env.ALLOWED_ORIGIN;
 
-createPromptRunServer(botToken).listen(port, () => {
+const server = allowedOrigin
+  ? createPromptRunServer(botToken, allowedOrigin)
+  : createPromptRunServer(botToken);
+
+server.listen(port, () => {
   console.log(`prompt-run server listening on port ${port}`);
 });

@@ -60,7 +60,9 @@ describe("createPromptRunServer", () => {
   it("posts a valid request end to end through real HTTP", async () => {
     globalThis.fetch = (async (url: string | URL, init?: RequestInit) => {
       if (String(url).includes("api.telegram.org")) {
-        return new Response(null, { status: 200 });
+        return new Response(JSON.stringify({ ok: true, result: true }), {
+          status: 200,
+        });
       }
       return originalFetch(url as never, init);
     }) as typeof fetch;
@@ -80,5 +82,66 @@ describe("createPromptRunServer", () => {
 
     expect(response.status).toBe(200);
     expect(body).toEqual({ status: "posted" });
+  });
+
+  it("answers an allowed-origin CORS preflight without hitting the route handler", async () => {
+    const response = await fetch(`${baseUrl}${"/api/prompt-run"}`, {
+      method: "OPTIONS",
+      headers: {
+        origin: "https://m2ai-portfolio.github.io",
+        "access-control-request-method": "POST",
+      },
+    });
+
+    expect(response.status).toBe(204);
+    expect(response.headers.get("access-control-allow-origin")).toBe(
+      "https://m2ai-portfolio.github.io",
+    );
+    expect(response.headers.get("access-control-allow-methods")).toContain(
+      "POST",
+    );
+  });
+
+  it("does not reflect an unrecognized origin in CORS headers", async () => {
+    const response = await fetch(`${baseUrl}${"/api/prompt-run"}`, {
+      method: "OPTIONS",
+      headers: {
+        origin: "https://evil.example",
+        "access-control-request-method": "POST",
+      },
+    });
+
+    expect(response.headers.get("access-control-allow-origin")).toBeNull();
+  });
+
+  it("sets the CORS allow-origin header on the real POST response too", async () => {
+    globalThis.fetch = (async (url: string | URL, init?: RequestInit) => {
+      if (String(url).includes("api.telegram.org")) {
+        return new Response(JSON.stringify({ ok: true, result: true }), {
+          status: 200,
+        });
+      }
+      return originalFetch(url as never, init);
+    }) as typeof fetch;
+
+    const nowSeconds = Math.floor(Date.now() / 1000);
+    const initData = signInitData(BOT_TOKEN, {
+      query_id: "http-e2e-cors",
+      user: '{"id":1,"first_name":"Test"}',
+      auth_date: String(nowSeconds),
+    });
+
+    const response = await fetch(`${baseUrl}/api/prompt-run`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        origin: "https://m2ai-portfolio.github.io",
+      },
+      body: JSON.stringify({ cardId: promptCatalog[0].id, initData }),
+    });
+
+    expect(response.headers.get("access-control-allow-origin")).toBe(
+      "https://m2ai-portfolio.github.io",
+    );
   });
 });

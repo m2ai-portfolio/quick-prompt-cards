@@ -25,10 +25,16 @@ function connectionRefused(): Error {
   return error;
 }
 
+function telegramOkResponse(): Response {
+  return new Response(JSON.stringify({ ok: true, result: true }), {
+    status: 200,
+  });
+}
+
 describe("answerWebAppQuery", () => {
   it("returns posted on a successful call", async () => {
     const fetchImpl: FetchLike = vi.fn(
-      async () => new Response(null, { status: 200 }),
+      async () => telegramOkResponse(),
     ) as unknown as FetchLike;
 
     const result = await answerWebAppQuery(baseParams, fetchImpl);
@@ -41,7 +47,7 @@ describe("answerWebAppQuery", () => {
     let capturedBody = "";
     const fetchImpl: FetchLike = vi.fn(async (_url, init) => {
       capturedBody = String(init?.body ?? "");
-      return new Response(null, { status: 200 });
+      return telegramOkResponse();
     }) as unknown as FetchLike;
 
     await answerWebAppQuery(baseParams, fetchImpl);
@@ -56,7 +62,7 @@ describe("answerWebAppQuery", () => {
     const fetchImpl = vi
       .fn()
       .mockRejectedValueOnce(dnsFailure())
-      .mockResolvedValueOnce(new Response(null, { status: 200 }));
+      .mockResolvedValueOnce(telegramOkResponse());
 
     const result = await answerWebAppQuery(
       baseParams,
@@ -80,6 +86,21 @@ describe("answerWebAppQuery", () => {
 
     expect(result).toEqual({ outcome: "telegram_error" });
     expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not retry and does not report posted for a 2xx response with ok: false", async () => {
+    const fetchImpl: FetchLike = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({ ok: false, description: "query is too old" }),
+          { status: 200 },
+        ),
+    ) as unknown as FetchLike;
+
+    const result = await answerWebAppQuery(baseParams, fetchImpl);
+
+    expect(result).toEqual({ outcome: "telegram_error" });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 
   it("does not retry a non-2xx response (ambiguous, ~request may have landed)", async () => {
