@@ -17,6 +17,8 @@ import {
   type RunPromptResult,
 } from "./telegram-actions";
 import type { Card, PromptCard } from "./types";
+import WorkflowWizard from "./components/WorkflowWizard";
+import type { WorkflowDefinition } from "./workflows/types";
 
 const FAVORITES_KEY = "prompt-pocket-favorites";
 
@@ -34,9 +36,14 @@ const STATUS_LABEL: Record<RunStatus, string> = {
 type AppProps = {
   cards?: Card[];
   runPrompt?: (cardId: string) => Promise<RunPromptResult>;
+  workflows?: Record<string, WorkflowDefinition>;
 };
 
-export default function App({ cards = prompts, runPrompt }: AppProps) {
+export default function App({
+  cards = prompts,
+  runPrompt,
+  workflows = {},
+}: AppProps) {
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState<string>("All");
   const [favoritesOnly, setFavoritesOnly] = useState(false);
@@ -50,6 +57,14 @@ export default function App({ cards = prompts, runPrompt }: AppProps) {
     }
   });
   const [runStatus, setRunStatus] = useState<Record<string, RunStatus>>({});
+  const [activeWorkflowId, setActiveWorkflowId] = useState<string | null>(null);
+
+  const openWorkflow = (workflowId: string) => {
+    if (!workflows[workflowId]) return;
+    setActiveWorkflowId(workflowId);
+  };
+
+  const closeWorkflow = () => setActiveWorkflowId(null);
 
   const cardsById = useMemo(
     () => new Map(cards.map((card) => [card.id, card])),
@@ -254,6 +269,20 @@ export default function App({ cards = prompts, runPrompt }: AppProps) {
                       </span>
                       <ChevronRight size={21} aria-hidden="true" />
                     </button>
+                  ) : workflows[card.workflow.id] ? (
+                    <button
+                      type="button"
+                      className="card-open"
+                      onClick={() => openWorkflow(card.workflow.id)}
+                      aria-label={`Open workflow: ${card.title}`}
+                    >
+                      <span>
+                        <span className="workflow-label">Workflow</span>
+                        <strong>{card.title}</strong>
+                        <small>{card.description}</small>
+                      </span>
+                      <ChevronRight size={21} aria-hidden="true" />
+                    </button>
                   ) : (
                     <button
                       type="button"
@@ -300,6 +329,13 @@ export default function App({ cards = prompts, runPrompt }: AppProps) {
           Always review the response before using it.
         </p>
       </footer>
+
+      {activeWorkflowId && workflows[activeWorkflowId] && (
+        <WorkflowWizard
+          definition={workflows[activeWorkflowId]}
+          onClose={closeWorkflow}
+        />
+      )}
     </main>
   );
 }

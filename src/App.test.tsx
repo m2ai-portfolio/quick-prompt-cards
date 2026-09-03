@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
 import type { Card, PromptCard } from "./types";
+import type { WorkflowDefinition } from "./workflows/types";
 
 beforeEach(() => {
   localStorage.clear();
@@ -198,5 +199,51 @@ describe("Prompt Pocket", () => {
     } finally {
       delete window.Telegram;
     }
+  });
+
+  it("opens the generic workflow wizard when a registered workflow card is tapped", async () => {
+    const user = userEvent.setup();
+    const workflowDefinition: WorkflowDefinition = {
+      id: "silver-platter",
+      schemaVersion: "1.0",
+      title: "Workflow example",
+      steps: [
+        {
+          id: "step-one",
+          title: "Step one",
+          fields: [],
+        },
+      ],
+    };
+    const cards: Card[] = [
+      {
+        id: "silver-platter",
+        kind: "workflow",
+        title: "Workflow example",
+        description: "A workflow card",
+        category: "Business",
+        tags: [],
+        workflow: {
+          id: "silver-platter",
+          schemaVersion: "1.0",
+          entryStage: "1_speed",
+        },
+      },
+    ];
+
+    render(
+      <App
+        cards={cards}
+        workflows={{ "silver-platter": workflowDefinition }}
+      />,
+    );
+
+    await user.click(
+      screen.getByRole("button", { name: "Open workflow: Workflow example" }),
+    );
+
+    expect(
+      screen.getByRole("dialog", { name: "Workflow example" }),
+    ).toBeInTheDocument();
   });
 });

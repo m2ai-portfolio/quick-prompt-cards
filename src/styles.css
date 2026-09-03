@@ -355,6 +355,119 @@ footer {
   text-align: center;
 }
 
+.wizard-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  background: rgba(20, 17, 14, 0.42);
+}
+.workflow-wizard {
+  width: min(100%, 560px);
+  max-height: min(92vh, 720px);
+  overflow-y: auto;
+  padding: 20px 18px calc(20px + env(safe-area-inset-bottom));
+  background: var(--surface);
+  border-radius: 20px 20px 0 0;
+  box-shadow: 0 -8px 30px rgba(30, 25, 20, 0.18);
+}
+.wizard-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.wizard-header h2 {
+  margin: 0;
+  font-size: 1.15rem;
+  letter-spacing: -0.02em;
+}
+.close-button {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  cursor: pointer;
+}
+.close-button:hover {
+  background: var(--surface-muted);
+}
+.wizard-step-title {
+  margin: 18px 0 4px;
+  font-size: 1.02rem;
+}
+.wizard-step-title:focus-visible,
+.wizard-step-title:focus {
+  outline: none;
+}
+.wizard-step-description {
+  margin: 0 0 14px;
+  color: var(--ink-muted);
+  font-size: 0.88rem;
+}
+.wizard-fields {
+  display: grid;
+  gap: 16px;
+  margin: 4px 0 20px;
+}
+.wizard-field {
+  display: grid;
+  gap: 6px;
+  font-size: 0.86rem;
+  font-weight: 600;
+}
+.wizard-field input,
+.wizard-field textarea {
+  padding: 12px 13px;
+  min-height: 46px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 1rem;
+  font-weight: 400;
+}
+.wizard-field textarea {
+  resize: vertical;
+}
+.wizard-field small {
+  color: var(--ink-muted);
+  font-weight: 400;
+}
+.wizard-field-error {
+  color: #b3261e;
+  font-weight: 600;
+}
+.wizard-actions {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+.wizard-actions button {
+  min-height: 46px;
+  padding: 10px 18px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  cursor: pointer;
+}
+.wizard-actions button:last-child {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+.wizard-actions button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 @media (max-width: 620px) {
   .prompt-grid {
     grid-template-columns: 1fr;
