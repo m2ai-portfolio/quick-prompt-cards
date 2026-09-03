@@ -350,6 +350,31 @@ describe("WorkflowWizard", () => {
     expect(screen.getByText(/already been completed/i)).toBeInTheDocument();
   });
 
+  it("lets the user explicitly restart a finished workflow into a fresh draft", async () => {
+    const user = userEvent.setup();
+    window.localStorage.setItem(
+      storageKeyFor(definition.id),
+      JSON.stringify(
+        validStoredState({ status: "completed", currentStageId: "step-two" }),
+      ),
+    );
+
+    render(<WorkflowWizard definition={definition} onClose={vi.fn()} />);
+
+    expect(screen.getByText(/already been completed/i)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Start over" }));
+
+    expect(
+      screen.queryByText(/already been completed/i),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "Step one" }),
+    ).toBeInTheDocument();
+    expect(
+      window.localStorage.getItem(storageKeyFor(definition.id)),
+    ).toBeNull();
+  });
+
   it("renders a workflow-owned answer with a non-callable toString instead of crashing", () => {
     window.localStorage.setItem(
       storageKeyFor(definition.id),

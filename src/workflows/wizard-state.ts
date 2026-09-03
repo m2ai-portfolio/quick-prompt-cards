@@ -120,44 +120,54 @@ export type AutomationStorage = {
   readonly isAvailable: boolean;
 };
 
-export function createAutomationStorage(
-  backing: Storage = window.localStorage,
-): AutomationStorage {
+export function createAutomationStorage(backing?: Storage): AutomationStorage {
   const memory = new Map<string, string>();
   let available = true;
+  let resolvedBacking: Storage | undefined = backing;
+
+  if (resolvedBacking === undefined) {
+    // Reading window.localStorage can itself throw (not just its methods) in
+    // some browser privacy modes, so the property access needs the same
+    // fallback-to-memory guard as every other storage operation below.
+    try {
+      resolvedBacking = window.localStorage;
+    } catch {
+      available = false;
+    }
+  }
 
   return {
     get isAvailable() {
       return available;
     },
     getItem(key) {
-      if (!available) return memory.get(key) ?? null;
+      if (!available || !resolvedBacking) return memory.get(key) ?? null;
       try {
-        return backing.getItem(key);
+        return resolvedBacking.getItem(key);
       } catch {
         available = false;
         return memory.get(key) ?? null;
       }
     },
     setItem(key, value) {
-      if (!available) {
+      if (!available || !resolvedBacking) {
         memory.set(key, value);
         return;
       }
       try {
-        backing.setItem(key, value);
+        resolvedBacking.setItem(key, value);
       } catch {
         available = false;
         memory.set(key, value);
       }
     },
     removeItem(key) {
-      if (!available) {
+      if (!available || !resolvedBacking) {
         memory.delete(key);
         return;
       }
       try {
-        backing.removeItem(key);
+        resolvedBacking.removeItem(key);
       } catch {
         available = false;
         memory.delete(key);

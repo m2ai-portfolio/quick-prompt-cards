@@ -359,4 +359,27 @@ describe("wizard-state persistence: storage fallback", () => {
     );
     expect(result).toBe(true);
   });
+
+  it("falls back to in-memory storage when window.localStorage itself throws on access", () => {
+    const descriptor = Object.getOwnPropertyDescriptor(window, "localStorage");
+    Object.defineProperty(window, "localStorage", {
+      configurable: true,
+      get() {
+        throw new DOMException("The operation is insecure.", "SecurityError");
+      },
+    });
+
+    try {
+      const storage = createAutomationStorage();
+      const state = updateAnswer(createWizardState(definition), "name", "Acme");
+      const availableAfterSave = saveWizardState(state, definition, storage);
+      expect(availableAfterSave).toBe(false);
+
+      const resumed = loadWizardState(definition, storage);
+      expect(resumed.outcome).toBe("resumed");
+      expect(resumed.state.answers).toEqual({ name: "Acme" });
+    } finally {
+      if (descriptor) Object.defineProperty(window, "localStorage", descriptor);
+    }
+  });
 });

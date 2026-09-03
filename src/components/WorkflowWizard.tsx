@@ -2,7 +2,9 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { X } from "lucide-react";
 import { isTerminalStatus, type WorkflowDefinition } from "../workflows/types";
 import {
+  clearWizardState,
   createAutomationStorage,
+  createWizardState,
   goBack,
   goNext,
   isLastStep,
@@ -155,6 +157,14 @@ export default function WorkflowWizard({
     onClose();
   };
 
+  const handleRestart = () => {
+    // Explicit user action, not an implicit reopen: a finished record is
+    // terminal per the contract, so starting over must clear it deliberately
+    // rather than the wizard silently reusing or discarding it on its own.
+    setStorageAvailable(clearWizardState(definition.id, storage));
+    setState(createWizardState(definition));
+  };
+
   if (!step) return null;
 
   return (
@@ -296,6 +306,13 @@ export default function WorkflowWizard({
             </button>
             <button type="button" onClick={handleNext}>
               {isLast ? "Finish" : "Next"}
+            </button>
+          </div>
+        )}
+        {isTerminal && (
+          <div className="wizard-actions">
+            <button type="button" onClick={handleRestart}>
+              Start over
             </button>
           </div>
         )}
