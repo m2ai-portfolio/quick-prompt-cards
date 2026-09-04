@@ -1,5 +1,5 @@
 import { promptCatalog } from "../shared/prompt-catalog";
-import type { Card, PromptCard, WorkflowCard } from "./types";
+import type { Card, CreatorCard, PromptCard, WorkflowCard } from "./types";
 
 const promptCards: PromptCard[] = promptCatalog.map((card) => ({
   ...card,
@@ -26,16 +26,20 @@ export const silverPocketCard: WorkflowCard = {
   },
 };
 
-export const prompts: Card[] = [...promptCards, silverPocketCard];
+export const createPromptCard: CreatorCard = {
+  id: "create-prompt",
+  kind: "creator",
+  title: "Create a prompt",
+  description:
+    "Describe what you need, shape a reusable prompt, and pin it for later.",
+  category: "Ideas",
+  tags: ["create", "prompt", "custom", "pin"],
+};
 
-export const categories = [
-  "All",
-  "Writing",
-  "Decisions",
-  "Learning",
-  "Research",
-  "Analysis",
-  "Planning",
-  "Ideas",
-  "Business",
-] as const;
+export const prompts: Card[] = [
+  ...promptCards,
+  createPromptCard,
+  silverPocketCard,
+];
+
+export const categories = ["All", "Writing", "Ideas", "Business"] as const;

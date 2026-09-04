@@ -1,4 +1,4 @@
-export type CardKind = "prompt" | "workflow";
+export type CardKind = "prompt" | "creator" | "workflow";
 
 export type BaseCard = {
   id: string;
@@ -22,6 +22,10 @@ export type PromptCard = BaseCard & {
   example?: string;
 };
 
+export type CreatorCard = BaseCard & {
+  kind: "creator";
+};
+
 export type WorkflowCard = BaseCard & {
   kind: "workflow";
   workflow: {
@@ -31,4 +35,4 @@ export type WorkflowCard = BaseCard & {
   };
 };
 
-export type Card = PromptCard | WorkflowCard;
+export type Card = PromptCard | CreatorCard | WorkflowCard;

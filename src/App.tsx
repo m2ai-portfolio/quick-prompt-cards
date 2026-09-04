@@ -1,13 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
-import {
-  Bookmark,
-  BookmarkCheck,
-  ChevronRight,
-  Search,
-  Sparkles,
-  X,
-} from "lucide-react";
-import { filterPrompts, toggleFavorite } from "./prompt-utils";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Copy, Pencil, PinOff, Search, X } from "lucide-react";
+import m2aiMarkUrl from "./assets/m2ai-mark.webp";
+import { filterPrompts } from "./prompt-utils";
 import { categories, prompts } from "./prompts";
 import {
   copyPromptToClipboard,
@@ -17,11 +11,21 @@ import {
   type RunPromptResult,
 } from "./telegram-actions";
 import type { Card, PromptCard } from "./types";
+import PromptCreator from "./components/PromptCreator";
+import PromptCardEditor from "./components/PromptCardEditor";
+import { parsePinnedPrompts, type PinnedPrompt } from "./prompt-creator";
+import {
+  EMPTY_PROMPT_CARD_CHANGES,
+  parsePromptCardChanges,
+  type PromptCardChanges,
+  type PromptCardEdit,
+} from "./card-customizations";
 import WorkflowWizard from "./components/WorkflowWizard";
 import { createAutomationStorage } from "./workflows/wizard-state";
 import type { WorkflowDefinition } from "./workflows/types";
 
-const FAVORITES_KEY = "prompt-pocket-favorites";
+const PINNED_PROMPTS_KEY = "prompt-pocket-pinned-prompts";
+const PROMPT_CARD_CHANGES_KEY = "prompt-pocket-card-changes";
 
 type RunStatus =
   "pending" | "dispatched" | "fallback-copied" | "unavailable" | "error";
@@ -47,18 +51,28 @@ export default function App({
 }: AppProps) {
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState<string>("All");
-  const [favoritesOnly, setFavoritesOnly] = useState(false);
-  const [favorites, setFavorites] = useState<string[]>(() => {
+  const [runStatus, setRunStatus] = useState<Record<string, RunStatus>>({});
+  const [activeWorkflowId, setActiveWorkflowId] = useState<string | null>(null);
+  const [isCreatingPrompt, setIsCreatingPrompt] = useState(false);
+  const [editingCardId, setEditingCardId] = useState<string | null>(null);
+  const resultsHeadingRef = useRef<HTMLHeadingElement>(null);
+  const focusResultsAfterDeleteRef = useRef(false);
+  const [cardChanges, setCardChanges] = useState<PromptCardChanges>(() => {
     try {
-      return JSON.parse(
-        localStorage.getItem(FAVORITES_KEY) ?? "[]",
-      ) as string[];
+      return parsePromptCardChanges(
+        localStorage.getItem(PROMPT_CARD_CHANGES_KEY),
+      );
+    } catch {
+      return EMPTY_PROMPT_CARD_CHANGES;
+    }
+  });
+  const [pinnedPrompts, setPinnedPrompts] = useState<PinnedPrompt[]>(() => {
+    try {
+      return parsePinnedPrompts(localStorage.getItem(PINNED_PROMPTS_KEY));
     } catch {
       return [];
     }
   });
-  const [runStatus, setRunStatus] = useState<Record<string, RunStatus>>({});
-  const [activeWorkflowId, setActiveWorkflowId] = useState<string | null>(null);
   // Created once per App mount (a tab session) so its in-memory fallback
   // persists across a workflow wizard closing and reopening in that same
   // tab, instead of resetting with each WorkflowWizard mount.
@@ -71,16 +85,31 @@ export default function App({
 
   const closeWorkflow = () => setActiveWorkflowId(null);
 
+  const customizedCards = useMemo(() => {
+    const deleted = new Set(cardChanges.deletedIds);
+    return cards
+      .filter((card) => card.kind !== "prompt" || !deleted.has(card.id))
+      .map((card) =>
+        card.kind === "prompt" && cardChanges.edits[card.id]
+          ? { ...card, ...cardChanges.edits[card.id] }
+          : card,
+      );
+  }, [cardChanges, cards]);
+
   const cardsById = useMemo(
-    () => new Map(cards.map((card) => [card.id, card])),
-    [cards],
+    () => new Map(customizedCards.map((card) => [card.id, card])),
+    [customizedCards],
   );
 
   const isInTelegramContext = Boolean(window.Telegram?.WebApp);
 
   const defaultRunPrompt = useMemo(
-    () => (cardId: string) => {
+    () => async (cardId: string) => {
       const card = cardsById.get(cardId) as PromptCard;
+      if (cardChanges.edits[cardId]) {
+        await copyPromptToClipboard(card.prompt);
+        return { status: "fallback-copied" } as RunPromptResult;
+      }
       return dispatchPrompt(card, {
         isInTelegram: () => isInTelegramContext,
         supportsOneTapDispatch: isTelegramWebAppSupported,
@@ -88,7 +117,7 @@ export default function App({
         copyToClipboard: copyPromptToClipboard,
       });
     },
-    [cardsById, isInTelegramContext],
+    [cardChanges.edits, cardsById, isInTelegramContext],
   );
   const runPromptAction = runPrompt ?? defaultRunPrompt;
 
@@ -107,20 +136,69 @@ export default function App({
   }, []);
 
   useEffect(() => {
-    localStorage.setItem(FAVORITES_KEY, JSON.stringify(favorites));
-  }, [favorites]);
+    try {
+      localStorage.setItem(PINNED_PROMPTS_KEY, JSON.stringify(pinnedPrompts));
+    } catch {
+      // The current tab still keeps pinned prompts when storage is blocked.
+    }
+  }, [pinnedPrompts]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(
+        PROMPT_CARD_CHANGES_KEY,
+        JSON.stringify(cardChanges),
+      );
+    } catch {
+      // The current tab still keeps card changes when storage is blocked.
+    }
+  }, [cardChanges]);
+
+  const saveCardEdit = (edit: PromptCardEdit) => {
+    setCardChanges((current) => ({
+      ...current,
+      edits: { ...current.edits, [edit.id]: edit },
+    }));
+    setEditingCardId(null);
+  };
+
+  const deleteCard = (id: string) => {
+    focusResultsAfterDeleteRef.current = true;
+    setCardChanges((current) => ({
+      edits: Object.fromEntries(
+        Object.entries(current.edits).filter(([cardId]) => cardId !== id),
+      ),
+      deletedIds: [...new Set([...current.deletedIds, id])],
+    }));
+    setEditingCardId(null);
+  };
+
+  useEffect(() => {
+    if (!editingCardId && focusResultsAfterDeleteRef.current) {
+      resultsHeadingRef.current?.focus();
+      focusResultsAfterDeleteRef.current = false;
+    }
+  }, [customizedCards.length, editingCardId]);
+
+  const pinPrompt = (prompt: PinnedPrompt) => {
+    setPinnedPrompts((current) => [
+      prompt,
+      ...current.filter((item) => item.id !== prompt.id),
+    ]);
+    window.Telegram?.WebApp.HapticFeedback?.notificationOccurred("success");
+  };
+
+  const unpinPrompt = (id: string) => {
+    setPinnedPrompts((current) => current.filter((item) => item.id !== id));
+  };
 
   const visibleCards = useMemo(() => {
-    const filtered = filterPrompts(cards, query, category);
-    return favoritesOnly
-      ? filtered.filter((prompt) => favorites.includes(prompt.id))
-      : filtered;
-  }, [cards, category, favorites, favoritesOnly, query]);
+    return filterPrompts(customizedCards, query, category);
+  }, [customizedCards, category, query]);
 
-  const updateFavorite = (id: string) => {
-    setFavorites((current) => toggleFavorite(current, id));
-    window.Telegram?.WebApp.HapticFeedback?.impactOccurred("light");
-  };
+  const editingCard = editingCardId
+    ? (cardsById.get(editingCardId) as PromptCard | undefined)
+    : undefined;
 
   const clearRunStatus = (id: string) => {
     setRunStatus((current) => {
@@ -153,17 +231,21 @@ export default function App({
   return (
     <main className="app-shell">
       <header className="app-header">
-        <div className="brand-mark" aria-hidden="true">
-          <Sparkles size={20} strokeWidth={2.2} />
-        </div>
+        <img
+          className="brand-mark"
+          src={m2aiMarkUrl}
+          width="48"
+          height="48"
+          alt="M2AI"
+        />
         <div>
           <p className="eyebrow">
             M2AI · AI ENHANCEMENT, ENABLEMENT & EXECUTION
           </p>
           <h1>Prompt Pocket</h1>
           <p className="header-copy">
-            Tap a card to run it. Every prompt is ready to go, no filling in
-            blanks and no copy-paste.
+            Start with one useful prompt, create your own, or map an automation.
+            Pin the prompts worth keeping.
           </p>
         </div>
       </header>
@@ -190,22 +272,14 @@ export default function App({
         </label>
 
         <div className="filter-row" aria-label="Prompt categories">
-          <button
-            className={`filter-chip favorite-filter ${favoritesOnly ? "active" : ""}`}
-            onClick={() => setFavoritesOnly((value) => !value)}
-            aria-pressed={favoritesOnly}
-          >
-            <Bookmark size={16} /> Favorites
-          </button>
           {categories.map((item) => (
             <button
               key={item}
-              className={`filter-chip ${category === item && !favoritesOnly ? "active" : ""}`}
+              className={`filter-chip ${category === item ? "active" : ""}`}
               onClick={() => {
                 setCategory(item);
-                setFavoritesOnly(false);
               }}
-              aria-pressed={category === item && !favoritesOnly}
+              aria-pressed={category === item}
             >
               {item}
             </button>
@@ -220,14 +294,54 @@ export default function App({
         </p>
       )}
 
+      {pinnedPrompts.length > 0 && (
+        <section
+          className="pinned-prompts"
+          aria-labelledby="pinned-prompts-title"
+        >
+          <div className="results-heading">
+            <h2 id="pinned-prompts-title">Pinned prompts</h2>
+            <span>{pinnedPrompts.length}</span>
+          </div>
+          <div className="prompt-grid">
+            {pinnedPrompts.map((prompt) => (
+              <article
+                className="prompt-card pinned-prompt-card"
+                key={prompt.id}
+              >
+                <div className="card-topline">
+                  <span className="category-label">📌 Pinned</span>
+                  <button
+                    type="button"
+                    className="favorite-button"
+                    onClick={() => unpinPrompt(prompt.id)}
+                    aria-label={`Unpin ${prompt.title}`}
+                  >
+                    <PinOff size={20} />
+                  </button>
+                </div>
+                <button
+                  type="button"
+                  className="card-open"
+                  onClick={() => navigator.clipboard.writeText(prompt.prompt)}
+                  aria-label={`Copy pinned prompt: ${prompt.title}`}
+                >
+                  <span>
+                    <strong>{prompt.title}</strong>
+                    <small>{prompt.prompt}</small>
+                  </span>
+                  <Copy size={20} aria-hidden="true" />
+                </button>
+              </article>
+            ))}
+          </div>
+        </section>
+      )}
+
       <section className="results" aria-live="polite">
         <div className="results-heading">
-          <h2>
-            {favoritesOnly
-              ? "Your favorites"
-              : category === "All"
-                ? "Choose what you need"
-                : category}
+          <h2 ref={resultsHeadingRef} tabIndex={-1}>
+            {category === "All" ? "Choose what you need" : category}
           </h2>
           <span>
             {visibleCards.length} {visibleCards.length === 1 ? "card" : "cards"}
@@ -237,24 +351,22 @@ export default function App({
         {visibleCards.length > 0 ? (
           <div className="prompt-grid">
             {visibleCards.map((card) => {
-              const isFavorite = favorites.includes(card.id);
               const status = runStatus[card.id];
               return (
                 <article className="prompt-card" key={card.id}>
                   <div className="card-topline">
                     <span className="category-label">{card.category}</span>
-                    <button
-                      className="favorite-button"
-                      onClick={() => updateFavorite(card.id)}
-                      aria-label={`${isFavorite ? "Remove" : "Add"} ${card.title} ${isFavorite ? "from" : "to"} favorites`}
-                      aria-pressed={isFavorite}
-                    >
-                      {isFavorite ? (
-                        <BookmarkCheck size={20} />
-                      ) : (
-                        <Bookmark size={20} />
-                      )}
-                    </button>
+                    {card.kind === "prompt" && (
+                      <button
+                        type="button"
+                        className="edit-card-button"
+                        onClick={() => setEditingCardId(card.id)}
+                        aria-label={`Edit ${card.title}`}
+                      >
+                        <Pencil size={17} aria-hidden="true" />
+                        <span>Edit</span>
+                      </button>
+                    )}
                   </div>
                   {card.kind === "prompt" ? (
                     <button
@@ -272,7 +384,25 @@ export default function App({
                           </span>
                         )}
                       </span>
-                      <ChevronRight size={21} aria-hidden="true" />
+                      <span className="go-action" aria-hidden="true">
+                        GO
+                      </span>
+                    </button>
+                  ) : card.kind === "creator" ? (
+                    <button
+                      type="button"
+                      className="card-open"
+                      onClick={() => setIsCreatingPrompt(true)}
+                      aria-label="Create a prompt"
+                    >
+                      <span>
+                        <span className="workflow-label">Make your own</span>
+                        <strong>{card.title}</strong>
+                        <small>{card.description}</small>
+                      </span>
+                      <span className="go-action" aria-hidden="true">
+                        GO
+                      </span>
                     </button>
                   ) : workflows[card.workflow.id] ? (
                     <button
@@ -286,7 +416,9 @@ export default function App({
                         <strong>{card.title}</strong>
                         <small>{card.description}</small>
                       </span>
-                      <ChevronRight size={21} aria-hidden="true" />
+                      <span className="go-action" aria-hidden="true">
+                        GO
+                      </span>
                     </button>
                   ) : (
                     <button
@@ -303,7 +435,9 @@ export default function App({
                           Not available yet
                         </span>
                       </span>
-                      <ChevronRight size={21} aria-hidden="true" />
+                      <span className="go-action" aria-hidden="true">
+                        GO
+                      </span>
                     </button>
                   )}
                 </article>
@@ -319,7 +453,6 @@ export default function App({
               onClick={() => {
                 setQuery("");
                 setCategory("All");
-                setFavoritesOnly(false);
               }}
             >
               Show all prompts
@@ -330,8 +463,8 @@ export default function App({
 
       <footer>
         <p>
-          Every prompt card sends a complete, ready-to-run prompt with one tap.
-          Always review the response before using it.
+          Created prompts stay on this device. Always review AI output before
+          using it.
         </p>
       </footer>
 
@@ -340,6 +473,21 @@ export default function App({
           definition={workflows[activeWorkflowId]}
           onClose={closeWorkflow}
           storage={workflowStorage}
+        />
+      )}
+      {isCreatingPrompt && (
+        <PromptCreator
+          onClose={() => setIsCreatingPrompt(false)}
+          onPin={pinPrompt}
+        />
+      )}
+      {editingCard && (
+        <PromptCardEditor
+          card={editingCard}
+          categories={categories.filter((item) => item !== "All")}
+          onClose={() => setEditingCardId(null)}
+          onSave={saveCardEdit}
+          onDelete={deleteCard}
         />
       )}
     </main>
