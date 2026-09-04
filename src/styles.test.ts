@@ -65,6 +65,17 @@ describe("M2AI design tokens", () => {
     expect(contrast(colors.focus, colors.surface)).toBeGreaterThanOrEqual(3);
   });
 
+  it("keeps category labels at normal-text contrast on white cards", () => {
+    const colors = parseColors(lightBlock);
+
+    expect(styles).toMatch(
+      /\.category-label\s*\{[\s\S]*?color:\s*var\(--m2ai-orange-dark\);[\s\S]*?\}/,
+    );
+    expect(
+      contrast(colors["m2ai-orange-dark"], colors.surface),
+    ).toBeGreaterThanOrEqual(4.5);
+  });
+
   it("renders the focus indicator at its opaque semantic color", () => {
     expect(styles).toContain("outline: 3px solid var(--focus);");
   });

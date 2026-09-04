@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
-import { ChevronRight, Copy, PinOff, Search, Sparkles, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Copy, Pencil, PinOff, Search, X } from "lucide-react";
+import m2aiMarkUrl from "./assets/m2ai-mark.webp";
 import { filterPrompts } from "./prompt-utils";
 import { categories, prompts } from "./prompts";
 import {
@@ -11,12 +12,20 @@ import {
 } from "./telegram-actions";
 import type { Card, PromptCard } from "./types";
 import PromptCreator from "./components/PromptCreator";
+import PromptCardEditor from "./components/PromptCardEditor";
 import { parsePinnedPrompts, type PinnedPrompt } from "./prompt-creator";
+import {
+  EMPTY_PROMPT_CARD_CHANGES,
+  parsePromptCardChanges,
+  type PromptCardChanges,
+  type PromptCardEdit,
+} from "./card-customizations";
 import WorkflowWizard from "./components/WorkflowWizard";
 import { createAutomationStorage } from "./workflows/wizard-state";
 import type { WorkflowDefinition } from "./workflows/types";
 
 const PINNED_PROMPTS_KEY = "prompt-pocket-pinned-prompts";
+const PROMPT_CARD_CHANGES_KEY = "prompt-pocket-card-changes";
 
 type RunStatus =
   "pending" | "dispatched" | "fallback-copied" | "unavailable" | "error";
@@ -45,6 +54,18 @@ export default function App({
   const [runStatus, setRunStatus] = useState<Record<string, RunStatus>>({});
   const [activeWorkflowId, setActiveWorkflowId] = useState<string | null>(null);
   const [isCreatingPrompt, setIsCreatingPrompt] = useState(false);
+  const [editingCardId, setEditingCardId] = useState<string | null>(null);
+  const resultsHeadingRef = useRef<HTMLHeadingElement>(null);
+  const focusResultsAfterDeleteRef = useRef(false);
+  const [cardChanges, setCardChanges] = useState<PromptCardChanges>(() => {
+    try {
+      return parsePromptCardChanges(
+        localStorage.getItem(PROMPT_CARD_CHANGES_KEY),
+      );
+    } catch {
+      return EMPTY_PROMPT_CARD_CHANGES;
+    }
+  });
   const [pinnedPrompts, setPinnedPrompts] = useState<PinnedPrompt[]>(() => {
     try {
       return parsePinnedPrompts(localStorage.getItem(PINNED_PROMPTS_KEY));
@@ -64,16 +85,31 @@ export default function App({
 
   const closeWorkflow = () => setActiveWorkflowId(null);
 
+  const customizedCards = useMemo(() => {
+    const deleted = new Set(cardChanges.deletedIds);
+    return cards
+      .filter((card) => card.kind !== "prompt" || !deleted.has(card.id))
+      .map((card) =>
+        card.kind === "prompt" && cardChanges.edits[card.id]
+          ? { ...card, ...cardChanges.edits[card.id] }
+          : card,
+      );
+  }, [cardChanges, cards]);
+
   const cardsById = useMemo(
-    () => new Map(cards.map((card) => [card.id, card])),
-    [cards],
+    () => new Map(customizedCards.map((card) => [card.id, card])),
+    [customizedCards],
   );
 
   const isInTelegramContext = Boolean(window.Telegram?.WebApp);
 
   const defaultRunPrompt = useMemo(
-    () => (cardId: string) => {
+    () => async (cardId: string) => {
       const card = cardsById.get(cardId) as PromptCard;
+      if (cardChanges.edits[cardId]) {
+        await copyPromptToClipboard(card.prompt);
+        return { status: "fallback-copied" } as RunPromptResult;
+      }
       return dispatchPrompt(card, {
         isInTelegram: () => isInTelegramContext,
         supportsOneTapDispatch: isTelegramWebAppSupported,
@@ -81,7 +117,7 @@ export default function App({
         copyToClipboard: copyPromptToClipboard,
       });
     },
-    [cardsById, isInTelegramContext],
+    [cardChanges.edits, cardsById, isInTelegramContext],
   );
   const runPromptAction = runPrompt ?? defaultRunPrompt;
 
@@ -107,6 +143,43 @@ export default function App({
     }
   }, [pinnedPrompts]);
 
+  useEffect(() => {
+    try {
+      localStorage.setItem(
+        PROMPT_CARD_CHANGES_KEY,
+        JSON.stringify(cardChanges),
+      );
+    } catch {
+      // The current tab still keeps card changes when storage is blocked.
+    }
+  }, [cardChanges]);
+
+  const saveCardEdit = (edit: PromptCardEdit) => {
+    setCardChanges((current) => ({
+      ...current,
+      edits: { ...current.edits, [edit.id]: edit },
+    }));
+    setEditingCardId(null);
+  };
+
+  const deleteCard = (id: string) => {
+    focusResultsAfterDeleteRef.current = true;
+    setCardChanges((current) => ({
+      edits: Object.fromEntries(
+        Object.entries(current.edits).filter(([cardId]) => cardId !== id),
+      ),
+      deletedIds: [...new Set([...current.deletedIds, id])],
+    }));
+    setEditingCardId(null);
+  };
+
+  useEffect(() => {
+    if (!editingCardId && focusResultsAfterDeleteRef.current) {
+      resultsHeadingRef.current?.focus();
+      focusResultsAfterDeleteRef.current = false;
+    }
+  }, [customizedCards.length, editingCardId]);
+
   const pinPrompt = (prompt: PinnedPrompt) => {
     setPinnedPrompts((current) => [
       prompt,
@@ -120,8 +193,12 @@ export default function App({
   };
 
   const visibleCards = useMemo(() => {
-    return filterPrompts(cards, query, category);
-  }, [cards, category, query]);
+    return filterPrompts(customizedCards, query, category);
+  }, [customizedCards, category, query]);
+
+  const editingCard = editingCardId
+    ? (cardsById.get(editingCardId) as PromptCard | undefined)
+    : undefined;
 
   const clearRunStatus = (id: string) => {
     setRunStatus((current) => {
@@ -154,9 +231,13 @@ export default function App({
   return (
     <main className="app-shell">
       <header className="app-header">
-        <div className="brand-mark" aria-hidden="true">
-          <Sparkles size={20} strokeWidth={2.2} />
-        </div>
+        <img
+          className="brand-mark"
+          src={m2aiMarkUrl}
+          width="48"
+          height="48"
+          alt="M2AI"
+        />
         <div>
           <p className="eyebrow">
             M2AI · AI ENHANCEMENT, ENABLEMENT & EXECUTION
@@ -259,7 +340,9 @@ export default function App({
 
       <section className="results" aria-live="polite">
         <div className="results-heading">
-          <h2>{category === "All" ? "Choose what you need" : category}</h2>
+          <h2 ref={resultsHeadingRef} tabIndex={-1}>
+            {category === "All" ? "Choose what you need" : category}
+          </h2>
           <span>
             {visibleCards.length} {visibleCards.length === 1 ? "card" : "cards"}
           </span>
@@ -273,6 +356,17 @@ export default function App({
                 <article className="prompt-card" key={card.id}>
                   <div className="card-topline">
                     <span className="category-label">{card.category}</span>
+                    {card.kind === "prompt" && (
+                      <button
+                        type="button"
+                        className="edit-card-button"
+                        onClick={() => setEditingCardId(card.id)}
+                        aria-label={`Edit ${card.title}`}
+                      >
+                        <Pencil size={17} aria-hidden="true" />
+                        <span>Edit</span>
+                      </button>
+                    )}
                   </div>
                   {card.kind === "prompt" ? (
                     <button
@@ -290,7 +384,9 @@ export default function App({
                           </span>
                         )}
                       </span>
-                      <ChevronRight size={21} aria-hidden="true" />
+                      <span className="go-action" aria-hidden="true">
+                        GO
+                      </span>
                     </button>
                   ) : card.kind === "creator" ? (
                     <button
@@ -304,7 +400,9 @@ export default function App({
                         <strong>{card.title}</strong>
                         <small>{card.description}</small>
                       </span>
-                      <ChevronRight size={21} aria-hidden="true" />
+                      <span className="go-action" aria-hidden="true">
+                        GO
+                      </span>
                     </button>
                   ) : workflows[card.workflow.id] ? (
                     <button
@@ -318,7 +416,9 @@ export default function App({
                         <strong>{card.title}</strong>
                         <small>{card.description}</small>
                       </span>
-                      <ChevronRight size={21} aria-hidden="true" />
+                      <span className="go-action" aria-hidden="true">
+                        GO
+                      </span>
                     </button>
                   ) : (
                     <button
@@ -335,7 +435,9 @@ export default function App({
                           Not available yet
                         </span>
                       </span>
-                      <ChevronRight size={21} aria-hidden="true" />
+                      <span className="go-action" aria-hidden="true">
+                        GO
+                      </span>
                     </button>
                   )}
                 </article>
@@ -377,6 +479,15 @@ export default function App({
         <PromptCreator
           onClose={() => setIsCreatingPrompt(false)}
           onPin={pinPrompt}
+        />
+      )}
+      {editingCard && (
+        <PromptCardEditor
+          card={editingCard}
+          categories={categories.filter((item) => item !== "All")}
+          onClose={() => setEditingCardId(null)}
+          onSave={saveCardEdit}
+          onDelete={deleteCard}
         />
       )}
     </main>
