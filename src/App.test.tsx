@@ -33,6 +33,80 @@ describe("Prompt Pocket", () => {
     ).toBeInTheDocument();
   });
 
+  it("shows exactly one canned prompt on the default home", () => {
+    render(<App />);
+
+    const promptActions = screen.getAllByRole("button", {
+      name: /^run prompt:/i,
+    });
+    expect(promptActions).toHaveLength(1);
+    expect(promptActions[0]).toHaveAccessibleName(
+      "Run prompt: Write a clear email",
+    );
+  });
+
+  it("opens a focused Create a prompt composer", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.click(screen.getByRole("button", { name: "Create a prompt" }));
+
+    expect(
+      screen.getByRole("dialog", { name: "Create a prompt" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByLabelText("What should this prompt help you do?"),
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText("What should it know?")).toBeInTheDocument();
+    expect(
+      screen.getByLabelText("How should the answer look?"),
+    ).toBeInTheDocument();
+  });
+
+  it("creates a personal prompt and pins it for later", async () => {
+    const user = userEvent.setup();
+    const { unmount } = render(<App />);
+
+    await user.click(screen.getByRole("button", { name: "Create a prompt" }));
+    await user.type(
+      screen.getByLabelText("What should this prompt help you do?"),
+      "Turn meeting notes into action items",
+    );
+    await user.type(
+      screen.getByLabelText("What should it know?"),
+      "Preserve owners and deadlines",
+    );
+    await user.type(
+      screen.getByLabelText("How should the answer look?"),
+      "A prioritized checklist",
+    );
+    await user.click(screen.getByRole("button", { name: "Create my prompt" }));
+
+    expect(
+      screen.getByRole("heading", { name: "Your prompt" }),
+    ).toBeInTheDocument();
+    expect(screen.getByTestId("created-prompt")).toHaveTextContent(
+      "Turn meeting notes into action items",
+    );
+    expect(screen.getByTestId("created-prompt")).toHaveTextContent(
+      "Preserve owners and deadlines",
+    );
+
+    await user.click(screen.getByRole("button", { name: "Pin this prompt" }));
+    expect(
+      screen.getByRole("heading", { name: "Pinned prompts" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("Turn meeting notes into action items"),
+    ).toBeInTheDocument();
+
+    unmount();
+    render(<App />);
+    expect(
+      screen.getByText("Turn meeting notes into action items"),
+    ).toBeInTheDocument();
+  });
+
   it("does not repeat the prompt type as a decorative badge", () => {
     render(<App />);
 

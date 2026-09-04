@@ -197,6 +197,16 @@ h1 {
 .results {
   padding-top: 16px;
 }
+.pinned-prompts {
+  margin-top: 18px;
+  padding: 16px;
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--line));
+  border-radius: 18px;
+  background: var(--accent-soft);
+}
+.pinned-prompts .prompt-card {
+  box-shadow: none;
+}
 .results-heading {
   display: flex;
   align-items: baseline;
@@ -462,6 +472,24 @@ footer {
   border-color: var(--accent);
   background: var(--accent);
   color: var(--accent-ink);
+}
+.created-prompt {
+  margin: 18px 0;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface-muted);
+  color: var(--ink);
+  font-size: 0.92rem;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  user-select: text;
+}
+.prompt-creator-actions button:last-child {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
 }
 .wizard-actions button:disabled {
   opacity: 0.45;

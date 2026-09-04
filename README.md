@@ -4,12 +4,14 @@ A mobile-first Telegram Mini App that helps people run useful prompts and shape 
 
 ## Features
 
-- Searchable, outcome-focused prompt cards
+- One useful starter prompt instead of a large canned library
+- A focused **Create a prompt** composer with review-before-save
+- Device-stored 📌 pinned personal prompts
 - One-tap stored-prompt dispatch from a supported Telegram launch
 - Explicit clipboard fallback outside Telegram
 - Silver Pocket, a provider-neutral guided automation workflow
 - Local save, close, and resume for guided workflows
-- Category filters and device-stored favorites
+- Lightweight search and category filters
 - Telegram theme, expansion, and haptic hooks
 - No model credential or bot token in browser code
 
@@ -39,7 +41,7 @@ The production build is written to `docs/` for GitHub Pages.
 
 ## Editing the library
 
-Canonical stored prompts live in `shared/prompt-catalog.ts`. The client adds delivery metadata in `src/prompts.ts`, which also registers workflow cards.
+The single canonical starter prompt lives in `shared/prompt-catalog.ts`. The client adds delivery metadata in `src/prompts.ts`, which also registers the **Create a prompt** and workflow cards. Personal prompts are assembled in `src/prompt-creator.ts` and pinned only to local device storage.
 
 Silver Pocket's guided questions live in `src/workflows/silver-pocket/definition.ts`. Keep them provider-neutral and ask only for information needed to define the automation.
 
