@@ -25,9 +25,9 @@ export type PromptCard = BaseCard & {
 export type WorkflowCard = BaseCard & {
   kind: "workflow";
   workflow: {
-    id: "silver-platter";
-    schemaVersion: "1.0";
-    entryStage: "1_speed";
+    id: string;
+    schemaVersion: string;
+    entryStage: string;
   };
 };
 

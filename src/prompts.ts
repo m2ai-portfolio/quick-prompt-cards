@@ -11,22 +11,22 @@ const promptCards: PromptCard[] = promptCatalog.map((card) => ({
   },
 }));
 
-export const silverPlatterCard: WorkflowCard = {
-  id: "silver-platter",
+export const silverPocketCard: WorkflowCard = {
+  id: "silver-pocket",
   kind: "workflow",
-  title: "Silver Platter: map your first automation",
+  title: "Silver Pocket: map your first automation",
   description:
-    "Answer a few questions about your work and walk away with a named automation draft.",
+    "Answer a few focused questions and leave with a clear, provider-neutral automation draft.",
   category: "Business",
-  tags: ["automation", "silver-platter"],
+  tags: ["automation", "silver-pocket", "workflow"],
   workflow: {
-    id: "silver-platter",
-    schemaVersion: "1.0",
-    entryStage: "1_speed",
+    id: "silver-pocket",
+    schemaVersion: "2.0",
+    entryStage: "task",
   },
 };
 
-export const prompts: Card[] = [...promptCards, silverPlatterCard];
+export const prompts: Card[] = [...promptCards, silverPocketCard];
 
 export const categories = [
   "All",

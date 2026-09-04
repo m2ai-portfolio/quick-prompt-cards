@@ -1,17 +1,17 @@
 # Prompt Pocket
 
-A mobile-first Telegram Mini App that helps new AI users choose a task, add a few details, and copy a complete prompt.
+A mobile-first Telegram Mini App that helps people run useful prompts and shape guided automations without depending on a specific LLM provider.
 
 ## Features
 
-- Searchable prompt cards
-- Category filters
-- Guided prompt customization
-- Live finished-prompt preview
-- One-tap copy
-- Favorites stored on the device
+- Searchable, outcome-focused prompt cards
+- One-tap stored-prompt dispatch from a supported Telegram launch
+- Explicit clipboard fallback outside Telegram
+- Silver Pocket, a provider-neutral guided automation workflow
+- Local save, close, and resume for guided workflows
+- Category filters and device-stored favorites
 - Telegram theme, expansion, and haptic hooks
-- Standalone browser fallback
+- No model credential or bot token in browser code
 
 ## Local development
 
@@ -24,7 +24,8 @@ npm run dev
 
 ```bash
 npm run format
-npx tsc --noEmit
+npx tsc -b --noEmit
+npm run typecheck:server
 npm test
 npm run lint
 npm run build
@@ -38,7 +39,13 @@ The production build is written to `docs/` for GitHub Pages.
 
 ## Editing the library
 
-Prompt cards live in `src/prompts.ts`. Each card defines its category, search tags, guided fields, and final prompt template.
+Canonical stored prompts live in `shared/prompt-catalog.ts`. The client adds delivery metadata in `src/prompts.ts`, which also registers workflow cards.
+
+Silver Pocket's guided questions live in `src/workflows/silver-pocket/definition.ts`. Keep them provider-neutral and ask only for information needed to define the automation.
+
+## Workflow compatibility
+
+Silver Pocket uses workflow ID `silver-pocket` and schema version `2.0`. It intentionally starts fresh instead of migrating Silver Platter drafts because the provider-specific answer model was replaced rather than renamed. Old browser-local records are not executed or uploaded.
 
 ## Telegram setup
 
