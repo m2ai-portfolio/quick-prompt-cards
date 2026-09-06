@@ -8,6 +8,15 @@ interface ImportMetaEnv {
    * deployed yet, so one-tap dispatch is treated as unsupported.
    */
   readonly VITE_PROMPT_RUN_ENDPOINT?: string;
+  /**
+   * Public (non-secret) base URL of the deployed prompt-pocket server for
+   * the v2 routes (contracts/prompt-run-v2.md, contracts/shared-pocket-v1.md),
+   * e.g. https://n8n.st-metro.dev/prompt-pocket. Every v2 URL is this base
+   * plus a POCKET_ROUTES entry from shared/pocket-contract.ts. Never holds a
+   * credential. Left unset means no v2 server is deployed, so the client
+   * stays in local-only mode and v1 dispatch keeps working.
+   */
+  readonly VITE_PROMPT_POCKET_API_BASE?: string;
 }
 
 interface ImportMeta {

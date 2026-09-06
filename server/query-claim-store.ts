@@ -59,6 +59,18 @@ export class QueryClaimStore {
     }
   }
 
+  /**
+   * Drops a still-pending claim so the same query_id can be claimed again.
+   * Only valid when the holder proves no Telegram call was attempted (for
+   * example a rate-limit rejection); a terminal claim is never released.
+   */
+  release(queryId: string): void {
+    const entry = this.claims.get(queryId);
+    if (entry && entry.state === "pending") {
+      this.claims.delete(queryId);
+    }
+  }
+
   private evictExpired(): void {
     const now = this.clock();
     for (const [queryId, entry] of this.claims) {
