@@ -103,13 +103,17 @@ export default function App({
 
   const isInTelegramContext = Boolean(window.Telegram?.WebApp);
 
+  // Locally edited cards keep the same server-catalog id (only title/
+  // category/prompt display text can change on-device), so they flow
+  // through the exact same dispatch gate as unedited cards: the server
+  // resolves the delivered prompt text from cardId against its own
+  // catalog and never trusts client-supplied content
+  // (contracts/prompt-run-v1.md, "Request"). A local edit only changes what
+  // the plain-browser clipboard fallback copies; it never opens a separate
+  // silent-copy path inside Telegram.
   const defaultRunPrompt = useMemo(
     () => async (cardId: string) => {
       const card = cardsById.get(cardId) as PromptCard;
-      if (cardChanges.edits[cardId]) {
-        await copyPromptToClipboard(card.prompt);
-        return { status: "fallback-copied" } as RunPromptResult;
-      }
       return dispatchPrompt(card, {
         isInTelegram: () => isInTelegramContext,
         supportsOneTapDispatch: isTelegramWebAppSupported,
@@ -117,9 +121,30 @@ export default function App({
         copyToClipboard: copyPromptToClipboard,
       });
     },
-    [cardChanges.edits, cardsById, isInTelegramContext],
+    [cardsById, isInTelegramContext],
   );
   const runPromptAction = runPrompt ?? defaultRunPrompt;
+
+  // Pinned/custom-created prompts (src/prompt-creator.ts) mint a client-only
+  // id and never exist in the server's catalog (shared/prompt-catalog.ts),
+  // so they can never resolve at the server and a dispatch attempt is
+  // guaranteed to come back `unknown_card`. sendWebAppQuery burns the whole
+  // Telegram session's one-shot query_id on ANY non-success response
+  // (contracts/prompt-run-v1.md, "Single-use / retry boundary"), which would
+  // make every OTHER card, including legitimate catalog cards, permanently
+  // undispatchable for the rest of that session. So one-tap dispatch is
+  // hardcoded to unsupported for pinned prompts specifically: this still
+  // goes through the same runPrompt() gate as every other card (so a tap
+  // inside Telegram surfaces "unavailable" rather than a silent clipboard
+  // copy, per the Fallback boundary), it just never spends the network call
+  // and the session's query_id on a request that cannot possibly succeed.
+  const runPinnedPrompt = (prompt: PinnedPrompt) =>
+    dispatchPrompt(prompt, {
+      isInTelegram: () => isInTelegramContext,
+      supportsOneTapDispatch: () => false,
+      sendWebAppQuery,
+      copyToClipboard: copyPromptToClipboard,
+    });
 
   // window.Telegram?.WebApp presence only tells us the page loaded inside a
   // Telegram launch, not whether one-tap dispatch actually works there. A3
@@ -228,6 +253,26 @@ export default function App({
     window.setTimeout(() => clearRunStatus(card.id), 2600);
   };
 
+  const handleRunPinnedPrompt = async (prompt: PinnedPrompt) => {
+    if (runStatus[prompt.id] === "pending") return;
+
+    setRunStatus((current) => ({ ...current, [prompt.id]: "pending" }));
+    window.Telegram?.WebApp.HapticFeedback?.impactOccurred("light");
+
+    try {
+      const result = await runPinnedPrompt(prompt);
+      setRunStatus((current) => ({ ...current, [prompt.id]: result.status }));
+      window.Telegram?.WebApp.HapticFeedback?.notificationOccurred(
+        result.status === "dispatched" ? "success" : "warning",
+      );
+    } catch {
+      setRunStatus((current) => ({ ...current, [prompt.id]: "error" }));
+      window.Telegram?.WebApp.HapticFeedback?.notificationOccurred("error");
+    }
+
+    window.setTimeout(() => clearRunStatus(prompt.id), 2600);
+  };
+
   return (
     <main className="app-shell">
       <header className="app-header">
@@ -304,36 +349,45 @@ export default function App({
             <span>{pinnedPrompts.length}</span>
           </div>
           <div className="prompt-grid">
-            {pinnedPrompts.map((prompt) => (
-              <article
-                className="prompt-card pinned-prompt-card"
-                key={prompt.id}
-              >
-                <div className="card-topline">
-                  <span className="category-label">📌 Pinned</span>
+            {pinnedPrompts.map((prompt) => {
+              const status = runStatus[prompt.id];
+              return (
+                <article
+                  className="prompt-card pinned-prompt-card"
+                  key={prompt.id}
+                >
+                  <div className="card-topline">
+                    <span className="category-label">📌 Pinned</span>
+                    <button
+                      type="button"
+                      className="favorite-button"
+                      onClick={() => unpinPrompt(prompt.id)}
+                      aria-label={`Unpin ${prompt.title}`}
+                    >
+                      <PinOff size={20} />
+                    </button>
+                  </div>
                   <button
                     type="button"
-                    className="favorite-button"
-                    onClick={() => unpinPrompt(prompt.id)}
-                    aria-label={`Unpin ${prompt.title}`}
+                    className="card-open"
+                    onClick={() => handleRunPinnedPrompt(prompt)}
+                    aria-label={`Run prompt: ${prompt.title}`}
+                    disabled={status === "pending"}
                   >
-                    <PinOff size={20} />
+                    <span>
+                      <strong>{prompt.title}</strong>
+                      <small>{prompt.prompt}</small>
+                      {status && (
+                        <span className="run-status">
+                          {STATUS_LABEL[status]}
+                        </span>
+                      )}
+                    </span>
+                    <Copy size={20} aria-hidden="true" />
                   </button>
-                </div>
-                <button
-                  type="button"
-                  className="card-open"
-                  onClick={() => navigator.clipboard.writeText(prompt.prompt)}
-                  aria-label={`Copy pinned prompt: ${prompt.title}`}
-                >
-                  <span>
-                    <strong>{prompt.title}</strong>
-                    <small>{prompt.prompt}</small>
-                  </span>
-                  <Copy size={20} aria-hidden="true" />
-                </button>
-              </article>
-            ))}
+                </article>
+              );
+            })}
           </div>
         </section>
       )}

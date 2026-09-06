@@ -7,6 +7,15 @@ export type RunPromptDependencies = {
   copyToClipboard: (prompt: string) => Promise<void>;
 };
 
+/**
+ * The only fields runPrompt() actually needs. Kept narrow (rather than the
+ * full PromptCard) so pinned/custom prompts, which never exist in the
+ * server-side catalog (contracts/prompt-run-v1.md), can be dispatched
+ * through the exact same Telegram-safety gate as catalog cards instead of
+ * a bypass path.
+ */
+export type RunnablePrompt = Pick<PromptCard, "id" | "prompt">;
+
 export type RunPromptResult =
   | { status: "dispatched" }
   | { status: "fallback-copied" }
@@ -20,7 +29,7 @@ export type RunPromptResult =
  * launch, never silently fall back to the clipboard.
  */
 export async function runPrompt(
-  card: PromptCard,
+  card: RunnablePrompt,
   dependencies: RunPromptDependencies,
 ): Promise<RunPromptResult> {
   if (dependencies.supportsOneTapDispatch()) {
