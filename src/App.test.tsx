@@ -2,6 +2,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
+import { createPromptCard } from "./prompts";
 import type { Card, PromptCard } from "./types";
 import type { WorkflowDefinition } from "./workflows/types";
 
@@ -129,9 +130,33 @@ describe("Prompt Pocket", () => {
     expect(saveButton).toHaveFocus();
   });
 
-  it("runs the locally edited prompt instead of the canonical prompt", async () => {
+  it("runs the locally edited prompt through the clipboard fallback outside Telegram", async () => {
     const user = userEvent.setup();
     const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText },
+      configurable: true,
+    });
+
+    render(<App cards={[promptCard]} />);
+    await user.click(
+      screen.getByRole("button", { name: "Edit Prompt example" }),
+    );
+    await user.clear(screen.getByLabelText("Prompt"));
+    await user.type(screen.getByLabelText("Prompt"), "Use my edited prompt.");
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+    await user.click(
+      screen.getByRole("button", { name: "Run prompt: Prompt example" }),
+    );
+
+    await waitFor(() =>
+      expect(writeText).toHaveBeenCalledWith("Use my edited prompt."),
+    );
+  });
+
+  it("never bypasses the Telegram-safe dispatch gate for a locally edited card (contracts/prompt-run-v1.md)", async () => {
+    const user = userEvent.setup();
+    const writeText = vi.fn();
     Object.defineProperty(navigator, "clipboard", {
       value: { writeText },
       configurable: true,
@@ -157,8 +182,11 @@ describe("Prompt Pocket", () => {
       );
 
       await waitFor(() =>
-        expect(writeText).toHaveBeenCalledWith("Use my edited prompt."),
+        expect(
+          screen.getByText("Couldn't send — reopen Prompt Pocket to try again"),
+        ).toBeInTheDocument(),
       );
+      expect(writeText).not.toHaveBeenCalled();
     } finally {
       delete window.Telegram;
     }
@@ -261,6 +289,110 @@ describe("Prompt Pocket", () => {
     expect(
       screen.getByText("Turn meeting notes into action items"),
     ).toBeInTheDocument();
+  });
+
+  it("copies a pinned prompt to the clipboard outside Telegram", async () => {
+    const user = userEvent.setup();
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText },
+      configurable: true,
+    });
+
+    render(<App />);
+    await user.click(screen.getByRole("button", { name: "Create a prompt" }));
+    await user.type(
+      screen.getByLabelText("What should this prompt help you do?"),
+      "Turn meeting notes into action items",
+    );
+    await user.click(screen.getByRole("button", { name: "Create my prompt" }));
+    await user.click(screen.getByRole("button", { name: "Pin this prompt" }));
+
+    await user.click(
+      screen.getByRole("button", {
+        name: "Run prompt: Turn meeting notes into action items",
+      }),
+    );
+
+    await waitFor(() => expect(writeText).toHaveBeenCalledTimes(1));
+  });
+
+  it("never falls back to the clipboard for a pinned prompt inside Telegram, and never spends the session's one-shot query_id doing so (contracts/prompt-run-v1.md)", async () => {
+    const user = userEvent.setup();
+    const writeText = vi.fn();
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText },
+      configurable: true,
+    });
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubEnv(
+      "VITE_PROMPT_RUN_ENDPOINT",
+      "https://api.example.test/api/prompt-run",
+    );
+    window.Telegram = {
+      WebApp: {
+        ready: vi.fn(),
+        expand: vi.fn(),
+        close: vi.fn(),
+        initData: "auth_date=1&hash=abc&query_id=q1",
+        initDataUnsafe: { query_id: "q1" },
+      },
+    };
+
+    try {
+      render(<App cards={[promptCard, createPromptCard]} />);
+      await user.click(screen.getByRole("button", { name: "Create a prompt" }));
+      await user.type(
+        screen.getByLabelText("What should this prompt help you do?"),
+        "Turn meeting notes into action items",
+      );
+      await user.click(
+        screen.getByRole("button", { name: "Create my prompt" }),
+      );
+      await user.click(screen.getByRole("button", { name: "Pin this prompt" }));
+
+      await user.click(
+        screen.getByRole("button", {
+          name: "Run prompt: Turn meeting notes into action items",
+        }),
+      );
+
+      await waitFor(() =>
+        expect(
+          screen.getByText("Couldn't send — reopen Prompt Pocket to try again"),
+        ).toBeInTheDocument(),
+      );
+      expect(writeText).not.toHaveBeenCalled();
+      // A pinned/custom prompt can never resolve against the server catalog
+      // (contracts/prompt-run-v1.md, "Request"), so a dispatch attempt would
+      // be guaranteed to fail and would burn the session's single-use
+      // query_id (contracts/prompt-run-v1.md, "Single-use / retry boundary"),
+      // silently breaking every other card's dispatch for the rest of the
+      // session. The fix must therefore never make the network call at all
+      // for a pinned prompt.
+      expect(fetchMock).not.toHaveBeenCalled();
+
+      // Confirm the session's query_id survives, so a legitimate catalog
+      // card can still dispatch right after the pinned-prompt tap.
+      fetchMock.mockResolvedValue(
+        new Response(JSON.stringify({ status: "posted" }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      );
+      await user.click(
+        screen.getByRole("button", { name: "Run prompt: Prompt example" }),
+      );
+      await waitFor(() =>
+        expect(screen.getByText("Sent to Telegram")).toBeInTheDocument(),
+      );
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    } finally {
+      delete window.Telegram;
+      vi.unstubAllEnvs();
+      vi.unstubAllGlobals();
+    }
   });
 
   it("does not repeat the prompt type as a decorative badge", () => {
