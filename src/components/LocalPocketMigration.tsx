@@ -83,8 +83,8 @@ export default function LocalPocketMigration({
         </header>
         <p className="wizard-step-description">
           This device holds {describeLocalPocket(counts)}. Import them to use
-          them from Hermes1 and Beth on any device. Nothing is uploaded until
-          you tap Import.
+          them from this bot on your devices. Nothing is uploaded until you tap
+          Import.
         </p>
         {failure && (
           <p role="alert" className="wizard-notice wizard-storage-warning">

@@ -216,8 +216,15 @@ const V1_ENDPOINT = `${API_BASE}${POCKET_ROUTES.promptRunV1}`;
  * URL). The v1 endpoint is configured in every launch so a test can prove
  * which contract a GO used, or that neither was.
  */
-function launchInTelegram(server: FakeServer, botKey: string | null = "hermes1") {
-  window.history.replaceState({}, "", botKey === null ? "/" : `/?bot=${botKey}`);
+function launchInTelegram(
+  server: FakeServer,
+  botKey: string | null = "hermes1",
+) {
+  window.history.replaceState(
+    {},
+    "",
+    botKey === null ? "/" : `/?bot=${botKey}`,
+  );
   vi.stubEnv("VITE_PROMPT_POCKET_API_BASE", API_BASE);
   vi.stubEnv("VITE_PROMPT_RUN_ENDPOINT", V1_ENDPOINT);
   vi.stubGlobal("fetch", server.fetchMock);
@@ -267,7 +274,7 @@ describe("local-only mode", () => {
   it("labels a plain-browser launch as not synced and keeps today's behavior", () => {
     render(<App cards={[promptCard]} />);
     expect(
-      screen.getByText("Not synced: open from Hermes1 or Beth"),
+      screen.getByText("Not synced: open from the bot's Prompt Pocket menu"),
     ).toBeInTheDocument();
     expect(
       screen.getByText(/Created prompts stay on this device/),
@@ -279,7 +286,7 @@ describe("local-only mode", () => {
     launchInTelegram(server, "HERMES1");
     render(<App cards={[promptCard]} />);
     expect(
-      screen.getByText("Not synced: open from Hermes1 or Beth"),
+      screen.getByText("Not synced: open from the bot's Prompt Pocket menu"),
     ).toBeInTheDocument();
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(server.fetchMock).not.toHaveBeenCalled();
@@ -308,7 +315,7 @@ describe("local-only mode", () => {
     await user.click(screen.getByRole("button", { name: "Try again" }));
     await waitFor(() =>
       expect(
-        screen.getByText(/Your pocket syncs across Hermes1 and Beth/),
+        screen.getByText(/Your pocket syncs with this bot/),
       ).toBeInTheDocument(),
     );
   });
@@ -320,7 +327,7 @@ describe("local-only mode", () => {
     ],
     [
       { status: 400, body: { status: "rejected", error: "invalid_init_data" } },
-      "Not synced: this launch couldn't be verified. Open Prompt Pocket from Hermes1 or Beth",
+      "Not synced: this launch couldn't be verified. Open Prompt Pocket from the bot's Prompt Pocket menu",
     ],
     [
       { status: 404, body: { status: "not_found" } },
@@ -352,13 +359,51 @@ describe("local-only mode", () => {
 
     render(<App cards={[promptCard]} />);
     expect(
-      await screen.findByText("Not synced: too many requests, wait a few minutes"),
+      await screen.findByText(
+        "Not synced: too many requests, wait a few minutes",
+      ),
     ).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Try again" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Try again" }),
+    ).toBeInTheDocument();
   });
 });
 
 describe("launch routing (contracts/prompt-run-v2.md, Client launch URL)", () => {
+  it.each([null, "hermes1"])(
+    "never sends canonical text for a locally edited card on launch %s",
+    async (botKey) => {
+      const server = createFakeServer();
+      server.failures.session = "unreachable";
+      launchInTelegram(server, botKey);
+      localStorage.setItem(
+        CHANGES_KEY,
+        JSON.stringify({
+          edits: {
+            [promptCard.id]: {
+              id: promptCard.id,
+              title: "My edited prompt",
+              category: "Writing",
+              description: "Edited",
+              prompt: "Use only my newly edited words.",
+            },
+          },
+          deletedIds: [],
+        }),
+      );
+      const user = userEvent.setup();
+      render(<App cards={[promptCard]} />);
+      const go = await screen.findByRole("button", {
+        name: "Run prompt: My edited prompt",
+      });
+      await user.click(go);
+      expect(
+        await screen.findByText("Couldn't send: this prompt isn't synced yet"),
+      ).toBeInTheDocument();
+      expect(v1Calls(server)).toHaveLength(0);
+      expect(promptRunCalls(server)).toHaveLength(0);
+    },
+  );
   it("a malformed ?bot= inside Telegram never dispatches: GO is a structural refusal, no request on either contract", async () => {
     // Review F2. "A missing or malformed key means no dispatch": a malformed
     // key is a tampered or mistyped URL, so neither v2 nor the v1 rollback
@@ -374,7 +419,7 @@ describe("launch routing (contracts/prompt-run-v2.md, Client launch URL)", () =>
     );
     expect(
       await screen.findByText(
-        "Couldn't send: open Prompt Pocket from Hermes1 or Beth",
+        "Couldn't send: open Prompt Pocket from the bot's Prompt Pocket menu",
       ),
     ).toBeInTheDocument();
     expect(screen.queryByText(/reopen Prompt Pocket/)).not.toBeInTheDocument();
@@ -392,7 +437,7 @@ describe("launch routing (contracts/prompt-run-v2.md, Client launch URL)", () =>
 
     render(<App cards={[promptCard]} />);
     expect(
-      screen.getByText("Not synced: open from Hermes1 or Beth"),
+      screen.getByText("Not synced: open from the bot's Prompt Pocket menu"),
     ).toBeInTheDocument();
     await user.click(
       screen.getByRole("button", { name: "Run prompt: Prompt example" }),
@@ -452,9 +497,9 @@ describe("boot window (no cache, session in flight)", () => {
 
     render(<App cards={[promptCard, createPromptCard]} />);
     await waitFor(() =>
-      expect(
-        server.calls.some((c) => c.path === POCKET_ROUTES.session),
-      ).toBe(true),
+      expect(server.calls.some((c) => c.path === POCKET_ROUTES.session)).toBe(
+        true,
+      ),
     );
     expect(screen.getByRole("status")).toHaveTextContent(
       "Syncing your pocket…",
@@ -466,8 +511,11 @@ describe("boot window (no cache, session in flight)", () => {
     expect(screen.queryByText("Boot window pin")).not.toBeInTheDocument();
 
     release();
-    expect(await screen.findByText("Boot window pin")).toBeInTheDocument();
     await waitFor(() => expect(server.records).toHaveLength(1));
+    // The optimistic draft node is replaced by the acknowledged record.
+    await waitFor(() =>
+      expect(screen.getByText("Boot window pin")).toBeInTheDocument(),
+    );
     expect(server.records[0]).toMatchObject({
       source: "personal",
       title: "Boot window pin",
@@ -583,7 +631,7 @@ describe("synced pocket", () => {
     const user = userEvent.setup();
 
     render(<App cards={[promptCard, createPromptCard]} />);
-    await screen.findByText(/Your pocket syncs across Hermes1 and Beth/);
+    await screen.findByText(/Your pocket syncs with this bot/);
 
     await pinViaComposer(user, "Turn meeting notes into action items");
 
@@ -621,7 +669,7 @@ describe("synced pocket", () => {
     const user = userEvent.setup();
 
     render(<App cards={[promptCard]} />);
-    await screen.findByText(/Your pocket syncs across Hermes1 and Beth/);
+    await screen.findByText(/Your pocket syncs with this bot/);
 
     await user.click(
       screen.getByRole("button", { name: "Run prompt: Prompt example" }),
@@ -638,7 +686,7 @@ describe("synced pocket", () => {
     const user = userEvent.setup();
 
     render(<App cards={[promptCard]} />);
-    await screen.findByText(/Your pocket syncs across Hermes1 and Beth/);
+    await screen.findByText(/Your pocket syncs with this bot/);
 
     await user.click(
       screen.getByRole("button", { name: "Edit Prompt example" }),
@@ -681,7 +729,7 @@ describe("synced pocket", () => {
     const user = userEvent.setup();
 
     render(<App cards={[promptCard]} />);
-    await screen.findByText(/Your pocket syncs across Hermes1 and Beth/);
+    await screen.findByText(/Your pocket syncs with this bot/);
 
     await user.click(
       screen.getByRole("button", { name: "Edit Prompt example" }),
@@ -708,7 +756,7 @@ describe("synced pocket", () => {
     const user = userEvent.setup();
 
     render(<App cards={[promptCard, createPromptCard]} />);
-    await screen.findByText(/Your pocket syncs across Hermes1 and Beth/);
+    await screen.findByText(/Your pocket syncs with this bot/);
 
     await pinViaComposer(user, "Draft a status update");
 
@@ -752,7 +800,7 @@ describe("synced pocket", () => {
     const user = userEvent.setup();
 
     render(<App cards={[promptCard]} />);
-    await screen.findByText(/Your pocket syncs across Hermes1 and Beth/);
+    await screen.findByText(/Your pocket syncs with this bot/);
 
     const go = screen.getByRole("button", {
       name: "Run prompt: Prompt example",
@@ -781,7 +829,7 @@ describe("synced pocket", () => {
     const user = userEvent.setup();
 
     render(<App cards={[promptCard]} />);
-    await screen.findByText(/Your pocket syncs across Hermes1 and Beth/);
+    await screen.findByText(/Your pocket syncs with this bot/);
 
     await user.click(
       screen.getByRole("button", { name: "Run prompt: Prompt example" }),
@@ -919,7 +967,7 @@ describe("one-time local import", () => {
     second.unmount();
 
     render(<App cards={[promptCard]} />);
-    await screen.findByText(/Your pocket syncs across Hermes1 and Beth/);
+    await screen.findByText(/Your pocket syncs with this bot/);
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(server.calls.some((c) => c.path === POCKET_ROUTES.import)).toBe(
       false,
@@ -963,7 +1011,7 @@ describe("one-time local import", () => {
     const user = userEvent.setup();
 
     render(<App cards={[promptCard]} />);
-    await screen.findByText(/Your pocket syncs across Hermes1 and Beth/);
+    await screen.findByText(/Your pocket syncs with this bot/);
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(
       screen.getByText(

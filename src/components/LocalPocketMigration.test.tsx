@@ -303,6 +303,7 @@ describe("<LocalPocketMigration>", () => {
     expect(
       screen.getByText(/This device holds 3 pinned prompts, 1 edited card\./),
     ).toBeInTheDocument();
+    expect(screen.getByRole("dialog")).not.toHaveTextContent("Beth");
     expect(onImport).not.toHaveBeenCalled();
 
     await user.click(screen.getByRole("button", { name: "Import" }));

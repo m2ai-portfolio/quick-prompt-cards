@@ -535,6 +535,8 @@ describe("createPocketSync writes (server-first)", () => {
     const failing = fakeClient();
     failing.createSession.mockRejectedValue(httpError("unknown_bot"));
     failing.promptRunV2.mockResolvedValue({ status: "posted" });
+    // This case is a first launch, not the cached offline pocket above.
+    localStorage.clear();
     const unsynced = makeSync(failing);
     await unsynced.bootstrap();
     expect(unsynced.getState().mode).toBe("local-only");

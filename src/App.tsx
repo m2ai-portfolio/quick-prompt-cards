@@ -73,7 +73,8 @@ const REJECT_LABEL: Record<DispatchRejectReason, string> = {
   unknown_target: "Couldn't send: this prompt isn't in your pocket anymore",
   rate_limited: "Too many sends. Wait a few minutes, then reopen Prompt Pocket",
   not_synced: "Couldn't send: this prompt isn't synced yet",
-  invalid_bot_key: "Couldn't send: open Prompt Pocket from Hermes1 or Beth",
+  invalid_bot_key:
+    "Couldn't send: open Prompt Pocket from the bot's Prompt Pocket menu",
   no_pocket_server: "Couldn't send: this build has no pocket server",
 };
 
@@ -119,7 +120,7 @@ function describeSyncRejection(code: string | null | undefined): string {
     case "invalid_init_data":
     case "stale_init_data":
     case "invalid_request":
-      return "this launch couldn't be verified. Open Prompt Pocket from Hermes1 or Beth";
+      return "this launch couldn't be verified. Open Prompt Pocket from the bot's Prompt Pocket menu";
     case "rate_limited":
       return "too many requests, wait a few minutes";
     case "not_found":
@@ -146,7 +147,7 @@ function statusLabel(entry: RunStatus): string {
   }
 }
 
-const NOT_SYNCED_LABEL = "Not synced: open from Hermes1 or Beth";
+const NOT_SYNCED_LABEL = "Not synced: open from the bot's Prompt Pocket menu";
 const UNREACHABLE_LABEL = "Not synced: couldn't reach the server";
 const BOOTING_LABEL = "Syncing your pocket…";
 
@@ -361,11 +362,18 @@ export default function App({
     if (dispatchRoute.kind === "refused") {
       return runRefused(card, dispatchRoute.reason);
     }
-    if (dispatchRoute.kind === "v1") return runV1(card, true);
+    if (dispatchRoute.kind === "v1") {
+      return runV1(card, !cardChanges.edits[cardId]);
+    }
     // Wait for the pocket to settle so a starter card the user edited on
     // another device posts their words, not the canonical text. If the
     // pocket never loads, a catalog dispatch still needs no session.
     const state = await settledPocket();
+    // A local edit has no server record. Never replace its visible words
+    // with the catalog original just because bootstrap failed.
+    if (state.mode !== "pocket" && cardChanges.edits[cardId]) {
+      return runV2(card, null);
+    }
     const override =
       state.mode === "pocket"
         ? findOverride(selectPocketView(state), card.id)
@@ -955,7 +963,7 @@ export default function App({
       <footer>
         <p>
           {pocketMode || booting
-            ? "Your pocket syncs across Hermes1 and Beth. Always review AI output before using it."
+            ? "Your pocket syncs with this bot. Always review AI output before using it."
             : "Created prompts stay on this device. Always review AI output before using it."}
         </p>
       </footer>

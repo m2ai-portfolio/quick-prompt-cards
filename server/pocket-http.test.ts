@@ -760,7 +760,8 @@ describe("pocket CRUD, two users, two bots", () => {
   it("rate limits pocket requests per user across bots", async () => {
     await new Promise<void>((resolve) => server.close(() => resolve()));
     pocketRateLimiter = new SlidingWindowRateLimiter({
-      limit: 3,
+      // Two session mints plus three reads share the same per-user budget.
+      limit: 5,
       windowMs: 10 * 60 * 1000,
       clock: () => now,
     });
@@ -874,7 +875,7 @@ describe("prompt-run v2 over HTTP", () => {
 });
 
 describe("structured request log", () => {
-  it("emits one line per request with exactly requestId, botKey, route, status, latencyMs", async () => {
+  it("emits one sanitized outcome line per request", async () => {
     const session = await mintSession("hermes1", USER_A);
     logLines = [];
     await createRecord(session, { prompt: "never-logged-prompt-text" });
@@ -891,6 +892,7 @@ describe("structured request log", () => {
     for (const line of logLines) {
       expect(Object.keys(line).sort()).toEqual([
         "botKey",
+        "error",
         "latencyMs",
         "requestId",
         "route",
