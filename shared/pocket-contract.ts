@@ -60,6 +60,14 @@ export type CreateRecordRequest = {
   category: string;
   prompt: string;
   hidden?: boolean;
+  /**
+   * Client-generated idempotency key (a ULID or uuid minted once when the
+   * user pins/edits/hides). The server dedupes on it per owner, so a
+   * timeout-plus-retry of the same create returns the first record instead
+   * of duplicating the pin. Required on every create; the local import path
+   * already carries the same idea as LocalRecord.localId.
+   */
+  localId: string;
 };
 
 export type UpdateRecordRequest = {
@@ -137,7 +145,8 @@ export type PromptRunV2Rejection =
   | "invalid_init_data"
   | "stale_init_data"
   | "missing_query_id"
-  | "unknown_target";
+  | "unknown_target"
+  | "prompt_too_long";
 
 export type PromptRunV2Response =
   | { status: "posted" }

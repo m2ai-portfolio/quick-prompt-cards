@@ -143,4 +143,26 @@ describe("loadBotRegistry", () => {
     ).toBe(true);
     expect(loadBotRegistry(TWO_BOTS).dispatchDisabled).toBe(false);
   });
+
+  it("fails startup when two keys share one env suffix (`a_b` and `a-b`)", () => {
+    // Both keys upper-case to the same PROMPT_POCKET_BOT_A_B_TOKEN suffix, so
+    // they would silently validate with one token. Fail closed at startup.
+    const env = {
+      PROMPT_POCKET_BOTS: "a_b,a-b",
+      PROMPT_POCKET_BOT_A_B_TOKEN: "fake-token-shared",
+    };
+    expect(() => loadBotRegistry(env)).toThrow(BotRegistryConfigError);
+    expect(() => loadBotRegistry(env)).toThrow(/a_b/);
+    expect(() => loadBotRegistry(env)).toThrow(/a-b/);
+  });
+
+  it("accepts keys whose env suffixes are genuinely distinct", () => {
+    const registry = loadBotRegistry({
+      PROMPT_POCKET_BOTS: "a_b,ab",
+      PROMPT_POCKET_BOT_A_B_TOKEN: "fake-token-underscore",
+      PROMPT_POCKET_BOT_AB_TOKEN: "fake-token-plain",
+    });
+    expect(registry.resolve("a_b")?.token).toBe("fake-token-underscore");
+    expect(registry.resolve("ab")?.token).toBe("fake-token-plain");
+  });
 });

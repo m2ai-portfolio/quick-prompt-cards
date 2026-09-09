@@ -21,10 +21,33 @@ export type DispatchRejectReason =
   | "invalid_request"
   | "invalid_init_data"
   | "unknown_target"
+  | "prompt_too_long"
   | "rate_limited"
   | "not_synced"
   | "invalid_bot_key"
   | "no_pocket_server";
+
+/**
+ * Honest copy per structural rejection. "Reopen Prompt Pocket" appears ONLY
+ * for `unavailable` outcomes (the session's single-use query_id is spent), so
+ * none of these labels says "reopen": reopening would change nothing
+ * (contracts/prompt-run-v2.md, "Idempotency, single-use, retry, fallback").
+ * `prompt_too_long` names the actual remedy: shorten the prompt.
+ */
+export const REJECT_LABEL: Record<DispatchRejectReason, string> = {
+  unknown_bot: "Couldn't send: this bot isn't enabled for Prompt Pocket",
+  dispatch_disabled: "Couldn't send: sending is paused right now",
+  invalid_request: "Couldn't send from this launch",
+  invalid_init_data: "Couldn't send from this launch",
+  unknown_target: "Couldn't send: this prompt isn't in your pocket anymore",
+  prompt_too_long:
+    "Couldn't send: this prompt is too long for Telegram. Shorten it in your pocket, then send again",
+  rate_limited: "Too many sends. Wait a few minutes, then reopen Prompt Pocket",
+  not_synced: "Couldn't send: this prompt isn't synced yet",
+  invalid_bot_key:
+    "Couldn't send: open Prompt Pocket from the bot's Prompt Pocket menu",
+  no_pocket_server: "Couldn't send: this build has no pocket server",
+};
 
 export type DispatchAttempt =
   | { status: "dispatched" }

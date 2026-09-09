@@ -27,6 +27,7 @@ const validCreate = {
   title: "Draft a memo",
   category: "Writing",
   prompt: "Write a memo about X.",
+  localId: "create-test-0001",
 };
 
 function created(owner = OWNER_A, body: unknown = validCreate) {
@@ -34,6 +35,59 @@ function created(owner = OWNER_A, body: unknown = validCreate) {
   if (!result.ok) throw new Error(`setup failed: ${result.error}`);
   return result.record;
 }
+
+describe("PocketService.create idempotency (localId)", () => {
+  const withLocalId = { ...validCreate, localId: "pin-abc123" };
+
+  it("replays the same localId: returns the SAME record and never creates a duplicate", () => {
+    const first = service.create(OWNER_A, withLocalId);
+    expect(first.ok).toBe(true);
+    const second = service.create(OWNER_A, withLocalId);
+    expect(second).toEqual(first);
+
+    // Different content with the same localId is still the same create
+    // (the first write wins; the retry's text is the user's stale copy).
+    const third = service.create(OWNER_A, {
+      ...withLocalId,
+      title: "Renamed while offline",
+    });
+    expect(first.ok && third.ok ? third.record.id : null).toBe(
+      first.ok ? first.record.id : null,
+    );
+    expect(service.list(OWNER_A).records).toHaveLength(1);
+  });
+
+  it("scopes localId dedupe to the owner: another user's key is independent", () => {
+    const a = service.create(OWNER_A, withLocalId);
+    const b = service.create(OWNER_B, withLocalId);
+    expect(a.ok && b.ok).toBe(true);
+    if (a.ok && b.ok) {
+      expect(b.record.id).not.toBe(a.record.id);
+    }
+    expect(service.list(OWNER_A).records).toHaveLength(1);
+    expect(service.list(OWNER_B).records).toHaveLength(1);
+  });
+
+  it("rejects a missing, empty, oversized, or non-string localId as invalid_request", () => {
+    const { localId: _omitted, ...withoutLocalId } = validCreate;
+    void _omitted;
+    expect(service.create(OWNER_A, withoutLocalId)).toEqual({
+      ok: false,
+      error: "invalid_request",
+    });
+    expect(service.create(OWNER_A, { ...withLocalId, localId: "" })).toEqual({
+      ok: false,
+      error: "invalid_request",
+    });
+    expect(
+      service.create(OWNER_A, { ...withLocalId, localId: "l".repeat(201) }),
+    ).toEqual({ ok: false, error: "invalid_request" });
+    expect(service.create(OWNER_A, { ...withLocalId, localId: 7 })).toEqual({
+      ok: false,
+      error: "invalid_request",
+    });
+  });
+});
 
 describe("PocketService.create", () => {
   it("creates a personal record with defaults and returns the wire shape", () => {
@@ -135,9 +189,15 @@ describe("PocketService.create", () => {
 
   it("enforces the per-user record count", () => {
     for (let i = 0; i < POCKET_LIMITS.maxRecordsPerUser; i += 1) {
-      created(OWNER_A, { ...validCreate, title: `Prompt ${i}` });
+      created(OWNER_A, {
+        ...validCreate,
+        title: `Prompt ${i}`,
+        localId: `count-${i}`,
+      });
     }
-    expect(service.create(OWNER_A, validCreate)).toEqual({
+    expect(
+      service.create(OWNER_A, { ...validCreate, localId: "count-over" }),
+    ).toEqual({
       ok: false,
       error: "limit_exceeded",
     });
@@ -147,11 +207,17 @@ describe("PocketService.create", () => {
 
   it("does not count soft-deleted records against the limit", () => {
     for (let i = 0; i < POCKET_LIMITS.maxRecordsPerUser; i += 1) {
-      created(OWNER_A, { ...validCreate, title: `Prompt ${i}` });
+      created(OWNER_A, {
+        ...validCreate,
+        title: `Prompt ${i}`,
+        localId: `softdel-${i}`,
+      });
     }
     const victim = store.listRecords(OWNER_A)[0];
     service.delete(OWNER_A, victim.id);
-    expect(service.create(OWNER_A, validCreate).ok).toBe(true);
+    expect(
+      service.create(OWNER_A, { ...validCreate, localId: "softdel-back" }).ok,
+    ).toBe(true);
   });
 
   it("canonical-override create is idempotent per canonicalCardId", () => {
@@ -161,9 +227,14 @@ describe("PocketService.create", () => {
       title: "My email",
       category: "Writing",
       prompt: "Write my email.",
+      localId: "override-1",
     };
     const first = service.create(OWNER_A, body);
-    const second = service.create(OWNER_A, { ...body, title: "Changed" });
+    const second = service.create(OWNER_A, {
+      ...body,
+      title: "Changed",
+      localId: "override-2",
+    });
 
     expect(first.ok && second.ok).toBe(true);
     if (!first.ok || !second.ok) return;
@@ -179,11 +250,16 @@ describe("PocketService.create", () => {
       category: "Writing",
       prompt: "Write my email.",
       hidden: true,
+      localId: "revive-1",
     };
     const first = created(OWNER_A, body);
     service.delete(OWNER_A, first.id);
 
-    const again = service.create(OWNER_A, { ...body, title: "Second edit" });
+    const again = service.create(OWNER_A, {
+      ...body,
+      title: "Second edit",
+      localId: "revive-2",
+    });
     expect(again.ok).toBe(true);
     if (!again.ok) return;
     expect(again.record.id).toBe(first.id);
@@ -434,7 +510,11 @@ describe("PocketService.import", () => {
 
   it("rejects a batch that would exceed the count limit and writes nothing", () => {
     for (let i = 0; i < POCKET_LIMITS.maxRecordsPerUser - 1; i += 1) {
-      created(OWNER_A, { ...validCreate, title: `Prompt ${i}` });
+      created(OWNER_A, {
+        ...validCreate,
+        title: `Prompt ${i}`,
+        localId: `importcap-${i}`,
+      });
     }
     expect(service.import(OWNER_A, payload)).toEqual({
       ok: false,

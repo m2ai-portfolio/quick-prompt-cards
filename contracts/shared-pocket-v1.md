@@ -81,7 +81,7 @@ deleted on expiry sweep (hourly) and on `POST /api/v2/session/logout`.
 
 ```
 GET    /api/v2/pocket                 -> { records: PromptRecord[], limits: {...} }   (excludes soft-deleted)
-POST   /api/v2/pocket/records         { source, canonicalCardId?, title, category, prompt, hidden? } -> { record }
+POST   /api/v2/pocket/records         { source, localId, canonicalCardId?, title, category, prompt, hidden? } -> { record }
 PATCH  /api/v2/pocket/records/:id     { revision, title?, category?, prompt?, hidden? } -> { record } | 409 revision_conflict { current }
 DELETE /api/v2/pocket/records/:id     -> 204 (soft delete)
 POST   /api/v2/pocket/records/:id/restore  -> { record }  (within 30 days)
@@ -96,6 +96,16 @@ revision, createdAt, updatedAt }`. Never `ownerTelegramUserId`.
 Rules:
 
 - Create validates limits; exceeding count: `400 limit_exceeded`.
+- `localId` (amended 2026-09-09) is REQUIRED on every create: a client-generated
+  idempotency key (1-200 chars), minted once when the user pins/edits/hides and
+  reused verbatim by every retry of that same create. The server dedupes on
+  `(owner_telegram_user_id, localId)`: a replayed create returns the record the
+  FIRST attempt made — never a second row — even after a timeout, a 5xx, or the
+  Mini App closing mid-flight. The mapping persists (owner-scoped table) and is
+  not affected by soft delete or the 30-day purge of prompt records. Another
+  user's `localId` is independent; the same value under two owners creates two
+  records. A missing, empty, oversized, or non-string `localId` is
+  `400 invalid_request`.
 - Creating a second `canonical-override` for the same `canonicalCardId` returns the existing
   one (idempotent), never a duplicate.
 - PATCH is compare-and-swap on `revision`; success increments it.
@@ -123,6 +133,9 @@ hidden? }`. Dedupe key is `(source, canonicalCardId ?? sha256(title + "\n" + pro
   "Couldn't sync, try again", and does not silently fall back to local-only.
 - GO on a personal or override record uses `prompt-run-v2` with `target.kind = "record"`.
   GO on an unedited starter card uses `target.kind = "catalog"`.
+- Every create mints its `localId` ONCE per user action (at pin/edit/hide time)
+  and carries it through retries; the client never mints a new key for a retry
+  of the same change (amended 2026-09-09).
 
 ## Adversarial cases (tests required before deploy)
 
@@ -136,6 +149,8 @@ hidden? }`. Dedupe key is `(source, canonicalCardId ?? sha256(title + "\n" + pro
 - Import replayed twice: second call imports nothing.
 - Interrupted import (server error mid-batch): the batch is one transaction; nothing partial.
 - Oversized prompt, over-limit count: `limit_exceeded`, nothing written.
+- Create replayed with the same `localId` (timeout + retry): the first record is
+  returned again; the owner's record count is unchanged (amended 2026-09-09).
 - Soft-deleted record: absent from GET, present in export with `deletedAt`, restorable, and
   `unknown_target` for dispatch.
 - Purge job removes rows older than 30 days after `deleted_at` and nothing else.

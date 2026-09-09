@@ -181,6 +181,7 @@ const PROMPT_RUN_V2_REJECTIONS = new Set([
   "stale_init_data",
   "missing_query_id",
   "unknown_target",
+  "prompt_too_long",
 ]);
 
 function isPromptRunV2Response(value: unknown): value is PromptRunV2Response {

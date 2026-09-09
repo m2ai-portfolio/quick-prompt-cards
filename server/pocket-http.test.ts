@@ -171,6 +171,7 @@ async function createRecord(
       title: "Draft a memo",
       category: "Writing",
       prompt: "Write a memo about X.",
+      localId: `http-${Math.random().toString(36).slice(2)}`,
       ...overrides,
     },
   });
@@ -179,6 +180,58 @@ async function createRecord(
   }
   return (response.body as { record: PromptRecord }).record;
 }
+
+describe("unhandled handler errors", () => {
+  it("returns a safe 500 internal_error and logs it instead of leaking the error", async () => {
+    // Force dispatch to reject: a store whose record lookup throws after the
+    // request validated. The server's .catch must answer 500 with a body that
+    // leaks nothing about the exception.
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    const throwingStore = new Proxy(store, {
+      get(target, prop, receiver) {
+        if (prop === "getActiveRecord") {
+          return () => {
+            throw new Error("secret-internal-detail");
+          };
+        }
+        return Reflect.get(target, prop, receiver);
+      },
+    });
+    server = createAppServer({
+      v1BotToken: V1_TOKEN,
+      pocket: {
+        registry: loadBotRegistry(ENV),
+        store: throwingStore,
+        now: () => now,
+        fetchImpl: telegramFetch,
+        pocketRateLimiter,
+      },
+      log: (line) => logLines.push(line),
+    });
+    await new Promise<void>((resolve) => server.listen(0, resolve));
+    baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+    try {
+      const session = await mintSession("hermes1", USER_A);
+      const response = await request("POST", POCKET_ROUTES.promptRunV2, {
+        body: {
+          botKey: "hermes1",
+          initData: initDataFor(HERMES_TOKEN, USER_A),
+          target: { kind: "record", recordId: "01ARZ3NDEKTSV4RRFFQ69G5FAV" },
+        },
+        session,
+      });
+      expect(response.status).toBe(500);
+      expect(response.body).toEqual({ status: "internal_error" });
+      expect(response.text).not.toContain("secret-internal-detail");
+      const line = logLines.find((entry) => entry.status === 500);
+      expect(line).toBeDefined();
+      expect(JSON.stringify(line)).not.toContain("secret-internal-detail");
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+      await startServer();
+    }
+  });
+});
 
 describe("health and v1 rollback path", () => {
   it('GET /health returns exactly {"status":"ok"}', async () => {
@@ -556,6 +609,47 @@ describe("pocket CRUD, two users, two bots", () => {
     });
   });
 
+  it("create replayed with the same localId returns the SAME record, never a duplicate", async () => {
+    const session = await mintSession("hermes1", USER_A);
+    const body = {
+      source: "personal",
+      title: "Meeting notes",
+      category: "Pinned",
+      prompt: "Turn notes into actions.",
+      localId: "pin-idem-1",
+    };
+
+    const first = await request("POST", POCKET_ROUTES.records, {
+      session,
+      body,
+    });
+    expect(first.status).toBe(200);
+    // Simulate a timeout-plus-retry: the identical payload (even with edited
+    // content, the client's stale copy) maps to the first record.
+    const retry = await request("POST", POCKET_ROUTES.records, {
+      session,
+      body: { ...body, title: "Stale title from the retry" },
+    });
+    expect(retry.status).toBe(200);
+
+    const firstRecord = (first.body as { record: PromptRecord }).record;
+    const retryRecord = (retry.body as { record: PromptRecord }).record;
+    expect(retryRecord.id).toBe(firstRecord.id);
+    expect(retryRecord.title).toBe("Meeting notes");
+    expect(store.listRecords(USER_A)).toHaveLength(1);
+
+    // A different user replaying the same key is a different create.
+    const other = await mintSession("beth", USER_B);
+    const b = await request("POST", POCKET_ROUTES.records, {
+      session: other,
+      body,
+    });
+    expect(b.status).toBe(200);
+    const bRecord = (b.body as { record: PromptRecord }).record;
+    expect(bRecord.id).not.toBe(firstRecord.id);
+    expect(store.listRecords(USER_B)).toHaveLength(1);
+  });
+
   it("rejects unknown fields on create and patch with invalid_request", async () => {
     const session = await mintSession("hermes1", USER_A);
     const create = await request("POST", POCKET_ROUTES.records, {
@@ -565,6 +659,7 @@ describe("pocket CRUD, two users, two bots", () => {
         title: "t",
         category: "",
         prompt: "p",
+        localId: "unknown-fields-1",
         ownerTelegramUserId: USER_B,
       },
     });
@@ -595,6 +690,7 @@ describe("pocket CRUD, two users, two bots", () => {
         title: "t",
         category: "",
         prompt: "p".repeat(POCKET_LIMITS.maxPromptBytes + 1),
+        localId: "oversize-1",
       },
     });
     expect(big.status).toBe(400);
@@ -621,6 +717,7 @@ describe("pocket CRUD, two users, two bots", () => {
         title: "one more",
         category: "",
         prompt: "p",
+        localId: "over-limit-1",
       },
     });
     expect(over.status).toBe(400);

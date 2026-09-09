@@ -38,16 +38,17 @@ const DEFAULT_TIMEOUT_MS = 8000;
 export const TELEGRAM_MAX_MESSAGE_TEXT_CHARS = 4096;
 
 /**
- * Rejection code for a target whose text cannot be posted. The frozen
- * PromptRunV2Rejection union has no dedicated code; `unknown_target` is the
- * step-5 code the contract names and the client treats it as structural
- * (query_id stays unused, no "reopen" copy). Swap this constant when the
- * contract amendment adds a dedicated code.
+ * Rejection code for a target whose text exceeds Telegram's 4096-char
+ * message limit (contracts/prompt-run-v2.md, amendment 2026-09-09: dedicated
+ * code in the PromptRunV2Rejection union). Checked in step 5, BEFORE the
+ * query_id is claimed, so the launch is not spent and Telegram is never
+ * called with text it would reject; the client maps it to structural
+ * (non-burning) copy.
  */
 const UNDISPATCHABLE_TARGET: Extract<
   PromptRunV2Response,
   { status: "rejected" }
->["error"] = "unknown_target";
+>["error"] = "prompt_too_long";
 
 type ParsedRequest = {
   botKey: string;

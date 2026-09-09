@@ -16,6 +16,7 @@ import {
   type RunnablePrompt,
 } from "./telegram-actions";
 import type { Card, PromptCard } from "./types";
+import { REJECT_LABEL } from "./telegram-actions";
 import PromptCreator from "./components/PromptCreator";
 import PromptCardEditor from "./components/PromptCardEditor";
 import LocalPocketMigration from "./components/LocalPocketMigration";
@@ -65,19 +66,6 @@ type RunStatus = { status: "pending" } | { status: "error" } | RunPromptResult;
  * "Idempotency, single-use, retry, fallback"). Structural rejections get
  * their own honest copy because reopening would change nothing.
  */
-const REJECT_LABEL: Record<DispatchRejectReason, string> = {
-  unknown_bot: "Couldn't send: this bot isn't enabled for Prompt Pocket",
-  dispatch_disabled: "Couldn't send: sending is paused right now",
-  invalid_request: "Couldn't send from this launch",
-  invalid_init_data: "Couldn't send from this launch",
-  unknown_target: "Couldn't send: this prompt isn't in your pocket anymore",
-  rate_limited: "Too many sends. Wait a few minutes, then reopen Prompt Pocket",
-  not_synced: "Couldn't send: this prompt isn't synced yet",
-  invalid_bot_key:
-    "Couldn't send: open Prompt Pocket from the bot's Prompt Pocket menu",
-  no_pocket_server: "Couldn't send: this build has no pocket server",
-};
-
 /**
  * Which dispatch contract this launch may use, decided once from the launch
  * URL (contracts/prompt-run-v2.md, "Client launch URL"):
@@ -93,6 +81,19 @@ type DispatchRoute =
   | { kind: "v2" }
   | { kind: "v1" }
   | { kind: "refused"; reason: DispatchRejectReason };
+
+/**
+ * Client-generated idempotency key for a create (contracts/shared-pocket-v1.md
+ * amendment: CreateRecordRequest.localId). Minted ONCE per user action, before
+ * the request leaves the app, and reused verbatim by every retry of the same
+ * unsynced change, so a timeout-plus-retry can never duplicate a pin: the
+ * server maps the key to the first record it created.
+ */
+function newCreateLocalId(): string {
+  return `local-${Date.now().toString(36)}-${Math.random()
+    .toString(36)
+    .slice(2, 10)}`;
+}
 
 function chooseDispatchRoute(
   botContext: ReturnType<typeof readBotContext>,
@@ -450,6 +451,7 @@ export default function App({
             source: "canonical-override",
             canonicalCardId: edit.id,
             ...fields,
+            localId: newCreateLocalId(),
           });
         }
       } else {
@@ -481,6 +483,7 @@ export default function App({
             category: card.category,
             prompt: card.prompt,
             hidden: true,
+            localId: newCreateLocalId(),
           });
         }
       } else {
@@ -510,6 +513,7 @@ export default function App({
           title: prompt.title,
           category: PINNED_CATEGORY,
           prompt: prompt.prompt,
+          localId: newCreateLocalId(),
         });
       } else {
         setPinnedPrompts((current) => [

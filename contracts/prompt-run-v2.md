@@ -98,7 +98,7 @@ duplicate_in_progress` / `409 already_consumed` / `200 already_posted` as v1.
 ```
 200 { "status": "posted" }
 200 { "status": "already_posted" }
-400 { "status": "rejected", "error": "invalid_request" | "unknown_bot" | "invalid_init_data" | "stale_init_data" | "missing_query_id" | "unknown_target" }
+400 { "status": "rejected", "error": "invalid_request" | "unknown_bot" | "invalid_init_data" | "stale_init_data" | "missing_query_id" | "unknown_target" | "prompt_too_long" }
 409 { "status": "duplicate_in_progress" } | { "status": "already_consumed" }
 429 { "status": "rate_limited" }
 502 { "status": "telegram_error" }
@@ -106,6 +106,37 @@ duplicate_in_progress` / `409 already_consumed` / `200 already_posted` as v1.
 ```
 
 Responses never echo `initData`, hashes, `query_id`, user ids, or prompt text.
+
+### Amendment 2026-09-09: `prompt_too_long`
+
+`prompt_too_long` is added to the frozen `PromptRunV2Rejection` union. It is
+returned (400) in step 5 when the resolved target's text exceeds
+`TELEGRAM_MAX_MESSAGE_TEXT_CHARS` (4096, the Bot API limit for
+`InputTextMessageContent.message_text`) — BEFORE the `query_id` is claimed, so
+the launch is not spent and Telegram is never called. It is a structural
+rejection: the client must NOT show "close and reopen Prompt Pocket" copy for
+it; the honest message tells the user to shorten the prompt. A record can store
+up to 8 KB (`shared-pocket-v1.md` limits), so this case is reachable for both
+catalog and record targets.
+
+## As-built decisions (recorded 2026-09-09, binding as implemented)
+
+1. **Strict malformed-`?bot=` refusal, never v1 fallback.** A launch URL whose
+   `?bot=` value fails the key grammar is refused structurally: no dispatch, no
+   pocket sync, local mode with the copy "open Prompt Pocket from the bot's
+   Prompt Pocket menu". It NEVER falls back to v1 — the URL was tampered with
+   or mistyped, and v1 would validate with whatever token the server holds,
+   which is not the user's bot. Only a launch with NO `bot` parameter at all
+   (the legacy Menu Button URL) uses the v1 rollback path. This tightens the
+   draft wording "a missing or malformed key means ... local-only mode": for a
+   MALFORMED key there is no v1 fallback either.
+2. **Hidden canonical-override records are dispatchable by record id.** A
+   `canonical-override` record with `hidden = 1` (the user deleted the starter
+   card but keeps the override row) remains resolvable in step 5 and
+   dispatchable through `target.kind = "record"`: GO on the hidden card still
+   posts the user's override text. Only soft-DELETED records are
+   `unknown_target`. The catalog surface hides the card; the pocket record is
+   the system of record for dispatch.
 
 ## Idempotency, single-use, retry, fallback
 
@@ -129,6 +160,10 @@ the token, `initData`, hash, `query_id`, user id, record id contents, or prompt 
 - extra client fields (`token`, `text`, `ownerId`, `chatId`): `invalid_request`
 - record owned by another user: `unknown_target`, zero Telegram calls
 - soft-deleted record: `unknown_target`
+- record text over 4096 chars: `prompt_too_long`, zero Telegram calls, query_id
+  unspent (amended 2026-09-09)
+- hidden canonical-override record: resolvable and dispatchable (as-built
+  decision 2, recorded 2026-09-09)
 - `PROMPT_POCKET_DISPATCH_DISABLED`: `dispatch_disabled`, zero Telegram calls
 - removing `beth` from `PROMPT_POCKET_BOTS`: beth requests `unknown_bot`, hermes1 unaffected
 - v1 route still posts a catalog card with `TELEGRAM_BOT_TOKEN` (rollback path intact)

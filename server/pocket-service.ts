@@ -35,6 +35,7 @@ const CREATE_KEYS = [
   "category",
   "prompt",
   "hidden",
+  "localId",
 ];
 const UPDATE_KEYS = ["revision", "title", "category", "prompt", "hidden"];
 const LOCAL_RECORD_KEYS = ["localId", ...CREATE_KEYS];
@@ -119,6 +120,17 @@ type ValidatedContent = RecordContent & {
   canonicalCardId: string | null;
 };
 
+function checkLocalId(value: unknown): FieldCheck<string> {
+  if (
+    typeof value !== "string" ||
+    value.length === 0 ||
+    value.length > MAX_LOCAL_ID_CHARS
+  ) {
+    return invalid();
+  }
+  return { ok: true, value: value };
+}
+
 function checkRecordBody(
   body: Record<string, unknown>,
 ): FieldCheck<ValidatedContent> {
@@ -179,12 +191,23 @@ export class PocketService {
     if (!isPlainObject(body) || !hasOnlyKeys(body, CREATE_KEYS)) {
       return invalid();
     }
+    // localId is the client-generated idempotency key: mandatory, deduped
+    // per owner below (contracts/shared-pocket-v1.md, amendment 2026-09-09).
+    const localId = checkLocalId(body.localId);
+    if (!localId.ok) return localId;
     const checked = checkRecordBody(body);
     if (!checked.ok) return checked;
     const fields = checked.value;
     const nowIso = this.nowIso();
 
     return this.store.transaction(() => {
+      // A retried create (timeout + retry, Mini App close + reopen) maps to
+      // the record the first attempt made: never a second pin.
+      const existingId = this.store.findCreateIdempotency(owner, localId.value);
+      if (existingId !== undefined) {
+        const existing = this.store.getIdempotentRecord(owner, existingId);
+        if (existing) return { ok: true, record: existing };
+      }
       if (fields.canonicalCardId !== null) {
         const existing = this.store.findByCanonicalCardId(
           owner,
@@ -216,10 +239,14 @@ export class PocketService {
       ) {
         return { ok: false, error: "limit_exceeded" };
       }
-      return {
-        ok: true,
-        record: this.store.insertRecord(owner, fields, nowIso),
-      };
+      const record = this.store.insertRecord(owner, fields, nowIso);
+      this.store.rememberCreateIdempotency(
+        owner,
+        localId.value,
+        record.id,
+        nowIso,
+      );
+      return { ok: true, record };
     });
   }
 

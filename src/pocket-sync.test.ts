@@ -327,6 +327,7 @@ describe("createPocketSync writes (server-first)", () => {
       title: "Meeting notes",
       category: "Pinned",
       prompt: "Turn notes into actions.",
+      localId: "test-local-1",
     });
 
     expect(ok).toBe(true);
@@ -340,6 +341,7 @@ describe("createPocketSync writes (server-first)", () => {
       title: "Meeting notes",
       category: "Pinned",
       prompt: "Turn notes into actions.",
+      localId: "test-local-1",
     });
   });
 
@@ -356,6 +358,7 @@ describe("createPocketSync writes (server-first)", () => {
       title: "Meeting notes",
       category: "Pinned",
       prompt: "Turn notes into actions.",
+      localId: "test-local-1",
     });
     expect(ok).toBe(false);
 
@@ -371,6 +374,7 @@ describe("createPocketSync writes (server-first)", () => {
           title: "Meeting notes",
           category: "Pinned",
           prompt: "Turn notes into actions.",
+          localId: "test-local-1",
         },
       },
     ]);
@@ -492,6 +496,7 @@ describe("createPocketSync writes (server-first)", () => {
         title: "t",
         category: "c",
         prompt: "p",
+        localId: "test-local-3",
       }),
     ).resolves.toBe(false);
     expect(client.createSession).not.toHaveBeenCalled();
@@ -571,6 +576,7 @@ describe("createPocketSync writes (server-first)", () => {
       title: "Draft",
       category: "Pinned",
       prompt: "Keep this text.",
+      localId: "test-local-4",
     });
     await sync.updateRecord("01JREC", { prompt: "Edited text" });
     expect(pocket(sync.getState()).unsynced).toHaveLength(2);
@@ -599,6 +605,7 @@ describe("createPocketSync writes (server-first)", () => {
           title: "Draft",
           category: "Pinned",
           prompt: "Keep this text.",
+          localId: "test-local-4",
         },
       },
       {

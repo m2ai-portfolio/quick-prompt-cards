@@ -1,6 +1,9 @@
 // @vitest-environment node
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { handlePromptRunV2 } from "./prompt-run-v2-handler";
+import {
+  TELEGRAM_MAX_MESSAGE_TEXT_CHARS,
+  handlePromptRunV2,
+} from "./prompt-run-v2-handler";
 import { loadBotRegistry } from "./bot-registry";
 import { PocketStore } from "./pocket-store";
 import { QueryClaimStore } from "./query-claim-store";
@@ -353,6 +356,77 @@ describe("handlePromptRunV2 validation order and adversarial cases", () => {
       body: { status: "rejected", error: "unknown_target" },
     });
     expect(calls).toHaveLength(0);
+  });
+
+  it("returns prompt_too_long (not unknown_target) for a record over the Telegram 4096-char limit, before claiming the query_id", async () => {
+    const tooLong = store.insertRecord(
+      USER_A,
+      {
+        source: "personal",
+        canonicalCardId: null,
+        title: "Big",
+        category: "",
+        prompt: "x".repeat(TELEGRAM_MAX_MESSAGE_TEXT_CHARS + 1),
+        hidden: false,
+      },
+      new Date(NOW_MS).toISOString(),
+    );
+    const { fetchImpl, calls } = captureFetch();
+    const shared = deps({ fetchImpl });
+
+    const result = await handlePromptRunV2(
+      {
+        botKey: "hermes1",
+        initData: initDataFor(HERMES_TOKEN, USER_A),
+        target: { kind: "record", recordId: tooLong.id },
+      },
+      shared,
+    );
+
+    expect(result).toEqual({
+      httpStatus: 400,
+      body: { status: "rejected", error: "prompt_too_long" },
+    });
+    // Pre-claim: the launch is not spent, and Telegram is never called.
+    expect(calls).toHaveLength(0);
+    // The same session can still GO a card that fits.
+    const ok = await handlePromptRunV2(
+      {
+        botKey: "hermes1",
+        initData: initDataFor(HERMES_TOKEN, USER_A),
+        target: { kind: "catalog", cardId: promptCatalog[0].id },
+      },
+      shared,
+    );
+    expect(ok).toEqual({ httpStatus: 200, body: { status: "posted" } });
+  });
+
+  it("posts a record of exactly TELEGRAM_MAX_MESSAGE_TEXT_CHARS (boundary is >)", async () => {
+    const exact = store.insertRecord(
+      USER_A,
+      {
+        source: "personal",
+        canonicalCardId: null,
+        title: "Exact",
+        category: "",
+        prompt: "x".repeat(TELEGRAM_MAX_MESSAGE_TEXT_CHARS),
+        hidden: false,
+      },
+      new Date(NOW_MS).toISOString(),
+    );
+    const { fetchImpl, calls } = captureFetch();
+
+    const result = await handlePromptRunV2(
+      {
+        botKey: "hermes1",
+        initData: initDataFor(HERMES_TOKEN, USER_A),
+        target: { kind: "record", recordId: exact.id },
+      },
+      deps({ fetchImpl }),
+    );
+
+    expect(result).toEqual({ httpStatus: 200, body: { status: "posted" } });
+    expect(calls).toHaveLength(1);
   });
 
   it("returns unknown_target for another user's record, a soft-deleted record, and a missing record, identically", async () => {

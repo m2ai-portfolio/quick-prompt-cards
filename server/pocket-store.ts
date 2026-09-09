@@ -50,6 +50,13 @@ CREATE INDEX IF NOT EXISTS prompt_records_owner
   ON prompt_records(owner_telegram_user_id);
 CREATE INDEX IF NOT EXISTS sessions_expires_at
   ON sessions(expires_at);
+CREATE TABLE IF NOT EXISTS create_idempotency (
+  owner_telegram_user_id INTEGER NOT NULL,
+  local_id               TEXT NOT NULL,
+  record_id              TEXT NOT NULL,
+  created_at             TEXT,
+  PRIMARY KEY (owner_telegram_user_id, local_id)
+);
 `;
 
 const RECORD_COLUMNS =
@@ -372,6 +379,43 @@ export class PocketStore {
       throw new Error("insert did not persist");
     }
     return record;
+  }
+
+  /**
+   * Idempotency for creates (contracts/shared-pocket-v1.md amendment:
+   * CreateRecordRequest.localId). Maps an owner's client-generated localId
+   * to the first record id it created. Returns undefined when unmapped.
+   */
+  findCreateIdempotency(owner: number, localId: string): string | undefined {
+    const row = this.db
+      .prepare(
+        `SELECT record_id FROM create_idempotency
+         WHERE owner_telegram_user_id = ? AND local_id = ?`,
+      )
+      .get(owner, localId) as Row | undefined;
+    return row ? String(row.record_id) : undefined;
+  }
+
+  rememberCreateIdempotency(
+    owner: number,
+    localId: string,
+    recordId: string,
+    nowIso: string,
+  ): void {
+    this.db
+      .prepare(
+        `INSERT OR IGNORE INTO create_idempotency
+           (owner_telegram_user_id, local_id, record_id, created_at)
+         VALUES (?, ?, ?, ?)`,
+      )
+      .run(owner, localId, recordId, nowIso);
+  }
+
+  getIdempotentRecord(
+    owner: number,
+    recordId: string,
+  ): PromptRecord | undefined {
+    return this.getActiveRecord(owner, recordId);
   }
 
   /** Reactivates a soft-deleted row with new content; revision increments. */

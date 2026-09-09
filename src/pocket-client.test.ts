@@ -148,6 +148,7 @@ describe("createPocketClient", () => {
       title: "Meeting notes",
       category: "Pinned",
       prompt: SECRET_PROMPT,
+      localId: "test-local-1",
     });
     expect(created).toEqual(record);
     const call = lastCall(fetchMock);
@@ -307,6 +308,7 @@ describe("createPocketClient", () => {
         title: "T",
         category: "C",
         prompt: SECRET_PROMPT,
+        localId: "test-local-2",
       })
       .then(
         () => null,

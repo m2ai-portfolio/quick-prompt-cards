@@ -3,7 +3,12 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { mkdtempSync, existsSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { PocketStore, generateRecordId } from "./pocket-store";
+import {
+  DB_FILE_NAME,
+  PocketStore,
+  PocketStoreOpenError,
+  generateRecordId,
+} from "./pocket-store";
 import type { LocalRecord } from "../shared/pocket-contract";
 
 const OWNER_A = 1001;
@@ -34,6 +39,36 @@ function personal(
     ...overrides,
   };
 }
+
+describe("PocketStore.open", () => {
+  it("throws PocketStoreOpenError on a missing directory and creates nothing", () => {
+    const missing = join(
+      tmpdir(),
+      `prompt-pocket-does-not-exist-${Date.now()}`,
+    );
+    expect(existsSync(missing)).toBe(false);
+    expect(() => PocketStore.open(missing)).toThrow(PocketStoreOpenError);
+    // Fail-closed: the directory and the database file must not be created
+    // as a side effect (a masked missing volume mount would silently keep
+    // every pocket in the container's writable layer).
+    expect(existsSync(missing)).toBe(false);
+    expect(existsSync(join(missing, DB_FILE_NAME))).toBe(false);
+  });
+
+  it("opens an existing directory and creates the database file", () => {
+    const dir = mkdtempSync(join(tmpdir(), "prompt-pocket-open-"));
+    try {
+      const opened = PocketStore.open(dir);
+      try {
+        expect(existsSync(join(dir, DB_FILE_NAME))).toBe(true);
+      } finally {
+        opened.close();
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
 
 describe("PocketStore schema", () => {
   it("creates the three tables and the partial unique index", () => {

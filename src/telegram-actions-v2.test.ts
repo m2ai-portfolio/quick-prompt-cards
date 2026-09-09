@@ -122,6 +122,7 @@ describe("sendWebAppQueryV2", () => {
     [{ status: "rejected", error: "invalid_request" }, "invalid_request"],
     [{ status: "rejected", error: "invalid_init_data" }, "invalid_init_data"],
     [{ status: "rejected", error: "unknown_target" }, "unknown_target"],
+    [{ status: "rejected", error: "prompt_too_long" }, "prompt_too_long"],
     [{ status: "dispatch_disabled" }, "dispatch_disabled"],
   ])(
     "%j: structural rejection %s leaves the query_id unspent (server rejects before claiming it)",
@@ -187,6 +188,25 @@ describe("sendWebAppQueryV2", () => {
       vi.unstubAllEnvs();
       vi.unstubAllGlobals();
     }
+  });
+
+  it("maps prompt_too_long to structural copy: rejected (not unavailable), session unspent, and the App label is not reopen copy", async () => {
+    // Structural rejections get honest copy that never says "reopen"
+    // (contracts/prompt-run-v2.md, "Idempotency, single-use, retry,
+    // fallback"): the server checked the length before claiming the
+    // query_id, so this session is still good for another card.
+    const run = respond({ status: "rejected", error: "prompt_too_long" });
+    await expect(sendWebAppQueryV2(target, run)).resolves.toEqual({
+      status: "rejected",
+      reason: "prompt_too_long",
+    });
+    expect(isSessionQueryAvailable()).toBe(true);
+    expect(run).toHaveBeenCalledTimes(1);
+
+    const { REJECT_LABEL } = await import("./telegram-actions");
+    const label = REJECT_LABEL.prompt_too_long;
+    expect(label).toMatch(/too long for Telegram/);
+    expect(label).not.toMatch(/reopen/i);
   });
 
   it("throws without launch data instead of sending", async () => {
