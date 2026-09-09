@@ -61,6 +61,102 @@ export function validateInitData(
   return { ok: true, queryId };
 }
 
+export type InitDataIdentityResult =
+  | { ok: true; userId: number; queryId: string | null }
+  | { ok: false; error: InitDataValidationError };
+
+/**
+ * contracts/prompt-run-v2.md step 4 and contracts/shared-pocket-v1.md
+ * "Session" step 1: same HMAC and freshness checks as v1, plus `user.id`
+ * must be present and numeric. `query_id` is required for dispatch and
+ * optional for session minting. The v1 `validateInitData` above is left
+ * untouched so the frozen v1 route keeps its exact behavior.
+ */
+export function validateInitDataIdentity(
+  initData: string,
+  botToken: string,
+  nowSeconds: number,
+  options: { requireQueryId: boolean },
+): InitDataIdentityResult {
+  const verified = verifySignatureAndFreshness(initData, botToken, nowSeconds);
+  if (!verified.ok) {
+    return verified;
+  }
+
+  const userId = parseUserId(verified.params.get("user"));
+  if (userId === undefined) {
+    return { ok: false, error: "invalid_init_data" };
+  }
+
+  const queryId = verified.params.get("query_id");
+  if (options.requireQueryId && !queryId) {
+    return { ok: false, error: "missing_query_id" };
+  }
+
+  return { ok: true, userId, queryId: queryId || null };
+}
+
+function verifySignatureAndFreshness(
+  initData: string,
+  botToken: string,
+  nowSeconds: number,
+):
+  | { ok: true; params: URLSearchParams }
+  | { ok: false; error: InitDataValidationError } {
+  const params = new URLSearchParams(initData);
+
+  const receivedHash = params.get("hash");
+  if (!receivedHash) {
+    return { ok: false, error: "invalid_init_data" };
+  }
+
+  const dataCheckEntries: string[] = [];
+  for (const [key, value] of params.entries()) {
+    if (key === "hash") continue;
+    dataCheckEntries.push(`${key}=${value}`);
+  }
+  dataCheckEntries.sort();
+  const dataCheckString = dataCheckEntries.join("\n");
+
+  const secretKey = createHmac("sha256", "WebAppData")
+    .update(botToken)
+    .digest();
+  const expectedHash = createHmac("sha256", secretKey)
+    .update(dataCheckString)
+    .digest("hex");
+
+  if (!constantTimeEquals(expectedHash, receivedHash)) {
+    return { ok: false, error: "invalid_init_data" };
+  }
+
+  const authDateRaw = params.get("auth_date");
+  const authDate = authDateRaw ? Number.parseInt(authDateRaw, 10) : NaN;
+  if (!Number.isFinite(authDate)) {
+    return { ok: false, error: "invalid_init_data" };
+  }
+  if (nowSeconds - authDate > MAX_AUTH_AGE_SECONDS) {
+    return { ok: false, error: "stale_init_data" };
+  }
+
+  return { ok: true, params };
+}
+
+function parseUserId(raw: string | null): number | undefined {
+  if (!raw) return undefined;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return undefined;
+  }
+  if (typeof parsed !== "object" || parsed === null) return undefined;
+  const id = (parsed as { id?: unknown }).id;
+  if (typeof id !== "number" || !Number.isSafeInteger(id) || id <= 0) {
+    return undefined;
+  }
+  return id;
+}
+
 function constantTimeEquals(expected: string, received: string): boolean {
   const expectedBuf = Buffer.from(expected, "utf8");
   const receivedBuf = Buffer.from(received, "utf8");

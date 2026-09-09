@@ -1,9 +1,69 @@
+import type {
+  DispatchTarget,
+  PromptRunV2Response,
+} from "../shared/pocket-contract";
 import type { PromptCard } from "./types";
+
+/**
+ * Structural reasons a send was refused. None of these is cured by closing
+ * and reopening Prompt Pocket (contracts/prompt-run-v2.md, "Idempotency,
+ * single-use, retry, fallback"), so the UI must not show the "reopen" copy
+ * for them. The last three are client-side and never reach the network:
+ * `not_synced` means the prompt has no server record yet, so there is
+ * nothing a v2 dispatch could target; `invalid_bot_key` means the launch
+ * URL's `?bot=` failed the key grammar, which the contract's "Client launch
+ * URL" clause defines as "no dispatch"; `no_pocket_server` means the build
+ * has a bot key but no v2 API base to send it to.
+ */
+export type DispatchRejectReason =
+  | "unknown_bot"
+  | "dispatch_disabled"
+  | "invalid_request"
+  | "invalid_init_data"
+  | "unknown_target"
+  | "prompt_too_long"
+  | "rate_limited"
+  | "not_synced"
+  | "invalid_bot_key"
+  | "no_pocket_server";
+
+/**
+ * Honest copy per structural rejection. "Reopen Prompt Pocket" appears ONLY
+ * for `unavailable` outcomes (the session's single-use query_id is spent), so
+ * none of these labels says "reopen": reopening would change nothing
+ * (contracts/prompt-run-v2.md, "Idempotency, single-use, retry, fallback").
+ * `prompt_too_long` names the actual remedy: shorten the prompt.
+ */
+export const REJECT_LABEL: Record<DispatchRejectReason, string> = {
+  unknown_bot: "Couldn't send: this bot isn't enabled for Prompt Pocket",
+  dispatch_disabled: "Couldn't send: sending is paused right now",
+  invalid_request: "Couldn't send from this launch",
+  invalid_init_data: "Couldn't send from this launch",
+  unknown_target: "Couldn't send: this prompt isn't in your pocket anymore",
+  prompt_too_long:
+    "Couldn't send: this prompt is too long for Telegram. Shorten it in your pocket, then send again",
+  rate_limited: "Too many sends. Wait a few minutes, then reopen Prompt Pocket",
+  not_synced: "Couldn't send: this prompt isn't synced yet",
+  invalid_bot_key:
+    "Couldn't send: open Prompt Pocket from the bot's Prompt Pocket menu",
+  no_pocket_server: "Couldn't send: this build has no pocket server",
+};
+
+export type DispatchAttempt =
+  | { status: "dispatched" }
+  /** The session's query_id is spent, or a fresh launch is the remedy. */
+  | { status: "unavailable" }
+  | { status: "rejected"; reason: DispatchRejectReason };
 
 export type RunPromptDependencies = {
   isInTelegram: () => boolean;
   supportsOneTapDispatch: () => boolean;
-  sendWebAppQuery: (cardId: string) => Promise<void>;
+  /**
+   * Resolving to `undefined` (the v1 adapter) means "dispatched"; a v2
+   * adapter resolves to a classified DispatchAttempt instead. A thrown
+   * error is always treated as the query_id being spent.
+   */
+  sendWebAppQuery: (cardId: string) => Promise<void | DispatchAttempt>;
   copyToClipboard: (prompt: string) => Promise<void>;
 };
 
@@ -16,10 +76,7 @@ export type RunPromptDependencies = {
  */
 export type RunnablePrompt = Pick<PromptCard, "id" | "prompt">;
 
-export type RunPromptResult =
-  | { status: "dispatched" }
-  | { status: "fallback-copied" }
-  | { status: "unavailable" };
+export type RunPromptResult = DispatchAttempt | { status: "fallback-copied" };
 
 /**
  * One card tap is the whole user action, and the clipboard fallback is a
@@ -34,8 +91,8 @@ export async function runPrompt(
 ): Promise<RunPromptResult> {
   if (dependencies.supportsOneTapDispatch()) {
     try {
-      await dependencies.sendWebAppQuery(card.id);
-      return { status: "dispatched" };
+      const outcome = await dependencies.sendWebAppQuery(card.id);
+      return outcome ?? { status: "dispatched" };
     } catch {
       // sendWebAppQuery burns the session's single-use query_id on any
       // rejection/timeout/ambiguous outcome, so this is a terminal result,
@@ -85,14 +142,39 @@ let sessionQueryState: SessionQueryState = "unused";
  * has not already spent its single-use query_id.
  */
 export function isTelegramWebAppSupported(): boolean {
-  if (sessionQueryState !== "unused") {
+  if (!getPromptRunEndpoint()) {
     return false;
   }
-  if (!getPromptRunEndpoint()) {
+  return isSessionQueryAvailable();
+}
+
+/**
+ * True when this launch carries signed init data with a query_id AND this
+ * page load has not spent it yet. Shared by the v1 and v2 paths: there is
+ * exactly one query_id per Mini App session regardless of which route
+ * consumes it.
+ */
+export function isSessionQueryAvailable(): boolean {
+  if (sessionQueryState !== "unused") {
     return false;
   }
   const webApp = window.Telegram?.WebApp;
   return Boolean(webApp?.initData) && Boolean(webApp?.initDataUnsafe?.query_id);
+}
+
+/**
+ * v2 dispatch (contracts/prompt-run-v2.md) needs the same launch conditions
+ * as v1 plus a configured API base and a strictly parsed bot key. The key
+ * is a request field only; it never changes which server is called.
+ */
+export function isTelegramWebAppSupportedV2(
+  apiBase: string | undefined,
+  botKey: string | null,
+): boolean {
+  if (!apiBase || !botKey) {
+    return false;
+  }
+  return isSessionQueryAvailable();
 }
 
 /**
@@ -162,6 +244,80 @@ export async function sendWebAppQuery(cardId: string): Promise<void> {
   throw new Error(
     `Telegram prompt dispatch for "${cardId}" was not confirmed (${body.status ?? response.status}) and cannot be retried. Close and reopen Prompt Pocket to try again.`,
   );
+}
+
+/**
+ * v2 counterpart of sendWebAppQuery: one `prompt-run/v2` request per
+ * session, targeting either a catalog card or one of the user's own pocket
+ * records. `run` is the transport (pocket-client's promptRunV2) so this
+ * module owns only the single-use bookkeeping and the outcome classing.
+ *
+ * Classification follows the server's validation order
+ * (contracts/prompt-run-v2.md): schema, kill switch, bot key, init data,
+ * and target are all checked BEFORE the query_id is claimed, so those
+ * rejections leave the session's query_id unspent and this module keeps
+ * it `unused` (the user can still GO another card). Everything at or after
+ * the claim (rate limit, duplicate, consumed, Telegram error) and every
+ * transport failure is ambiguous or terminal and burns the session.
+ * `stale_init_data` / `missing_query_id` are pre-claim, but only a fresh
+ * launch can fix them, so they are reported as `unavailable` too.
+ */
+export async function sendWebAppQueryV2(
+  target: DispatchTarget,
+  run: (
+    initData: string,
+    target: DispatchTarget,
+  ) => Promise<PromptRunV2Response>,
+): Promise<DispatchAttempt> {
+  if (sessionQueryState !== "unused") {
+    throw new Error(
+      "This Telegram session already used its one-time send. Close and reopen Prompt Pocket to send another prompt.",
+    );
+  }
+  const initData = window.Telegram?.WebApp?.initData;
+  if (!initData) {
+    throw new Error("Telegram launch data is unavailable.");
+  }
+
+  sessionQueryState = "in-flight";
+
+  let response: PromptRunV2Response;
+  try {
+    response = await run(initData, target);
+  } catch {
+    // Timeout, network, or malformed body: the server may have already
+    // posted, so this is terminal for the session's query_id.
+    sessionQueryState = "burned";
+    return { status: "unavailable" };
+  }
+
+  switch (response.status) {
+    case "posted":
+    case "already_posted":
+      sessionQueryState = "posted";
+      return { status: "dispatched" };
+    case "rejected":
+      switch (response.error) {
+        case "stale_init_data":
+        case "missing_query_id":
+          sessionQueryState = "burned";
+          return { status: "unavailable" };
+        default:
+          sessionQueryState = "unused";
+          return { status: "rejected", reason: response.error };
+      }
+    case "dispatch_disabled":
+      sessionQueryState = "unused";
+      return { status: "rejected", reason: "dispatch_disabled" };
+    case "rate_limited":
+      sessionQueryState = "burned";
+      return { status: "rejected", reason: "rate_limited" };
+    case "duplicate_in_progress":
+    case "already_consumed":
+    case "telegram_error":
+      sessionQueryState = "burned";
+      return { status: "unavailable" };
+  }
 }
 
 /**

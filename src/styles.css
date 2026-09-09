@@ -725,3 +725,48 @@ footer {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* Phase 2: shared pocket sync affordances */
+.sync-label {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin: 12px 0 0;
+  padding: 9px 13px;
+  border: 1px solid rgba(232, 93, 4, 0.22);
+  border-radius: 13px;
+  background: rgba(232, 93, 4, 0.07);
+  color: var(--ink-muted);
+  font-size: 0.8rem;
+  line-height: 1.45;
+}
+
+.sync-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  margin-top: 8px;
+  color: var(--m2ai-orange-dark);
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+
+.retry-sync-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 9px;
+  border: 1px solid rgba(232, 93, 4, 0.35);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--m2ai-orange-dark);
+  font-size: 0.74rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.migration-actions {
+  padding-top: 14px;
+}

@@ -181,9 +181,11 @@ describe("Prompt Pocket", () => {
         screen.getByRole("button", { name: "Run prompt: Prompt example" }),
       );
 
+      // Phase 2: label punctuation only (em dash dropped); this launch has no
+      // query_id, so "reopen" is still the honest remedy.
       await waitFor(() =>
         expect(
-          screen.getByText("Couldn't send — reopen Prompt Pocket to try again"),
+          screen.getByText("Couldn't send, reopen Prompt Pocket to try again"),
         ).toBeInTheDocument(),
       );
       expect(writeText).not.toHaveBeenCalled();
@@ -358,9 +360,12 @@ describe("Prompt Pocket", () => {
         }),
       );
 
+      // Phase 2 (contracts/shared-pocket-v1.md): a local pin has no server
+      // record, so this is a structural `not_synced` rejection, and the
+      // "reopen" copy is reserved for a spent query_id (prompt-run-v2.md).
       await waitFor(() =>
         expect(
-          screen.getByText("Couldn't send — reopen Prompt Pocket to try again"),
+          screen.getByText("Couldn't send: this prompt isn't synced yet"),
         ).toBeInTheDocument(),
       );
       expect(writeText).not.toHaveBeenCalled();
@@ -552,9 +557,11 @@ describe("Prompt Pocket", () => {
       });
       await user.click(button);
 
+      // Phase 2: label punctuation only (em dash dropped); no query_id in
+      // this launch, so a fresh launch remains the remedy.
       await waitFor(() =>
         expect(
-          screen.getByText("Couldn't send — reopen Prompt Pocket to try again"),
+          screen.getByText("Couldn't send, reopen Prompt Pocket to try again"),
         ).toBeInTheDocument(),
       );
       expect(writeText).not.toHaveBeenCalled();
